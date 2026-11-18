@@ -58,6 +58,12 @@ struct ConnectView: View {
                             Label("Connect to \(last.label)", systemImage: "bolt.horizontal.fill")
                         }
                     }
+                    if s.state == .connected, let p = s.adapterProfile {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.chip).font(.subheadline.weight(.semibold))
+                            Text(p.summary).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Toggle("Connect automatically at launch", isOn: $autoConnect)
                     Toggle("Reconnect if the link drops", isOn: $autoReconnect)
                     if s.state == .connected {
@@ -66,6 +72,29 @@ struct ConnectView: View {
                         LabeledContent("Supported PIDs", value: "\(s.supported.count)")
                         Button("Disconnect", role: .destructive) { s.disconnect() }
                     }
+                }
+                if !s.savedAdapters.isEmpty {
+                    Section {
+                        ForEach(s.savedAdapters) { a in
+                            Button { s.connectSaved(a) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(a.name).font(.subheadline.weight(.semibold))
+                                    Text(a.profile.chip).font(.caption).foregroundStyle(.secondary)
+                                    if let o = a.voltOffset, abs(o) >= 0.2 {
+                                        Text(String(format: "Voltmeter %+.1f V — corrected automatically", o))
+                                            .font(.caption2).foregroundStyle(.orange)
+                                    }
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                        .onDelete { idx in
+                            var all = s.savedAdapters
+                            all.remove(atOffsets: idx)
+                            SavedAdapter.save(all)
+                            s.savedAdapters = all
+                        }
+                    } header: { Text("My adapters") } footer: { Text("Tap to connect. Swipe left to forget.") }
                 }
                 Section {
                     if !s.scanner.poweredOn { Text("Turn on Bluetooth").foregroundStyle(.secondary) }

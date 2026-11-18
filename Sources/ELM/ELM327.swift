@@ -1,5 +1,23 @@
 import Foundation
 
+/// What kind of adapter this is and which workarounds it needs.
+struct AdapterProfile: Codable, Equatable {
+    let ati: String
+    let sti: String
+    var isSTN: Bool { !sti.isEmpty }
+    /// Elm Electronics never sold v1.5 / v2.x firmware → those strings mean a clone.
+    var isClone: Bool {
+        let a = ati.uppercased()
+        return !isSTN && (["V1.5", "V2.1", "V2.2", "V2.3"].contains { a.contains($0) } || !a.hasPrefix("ELM327"))
+    }
+    var chip: String { isSTN ? "\(sti) (genuine STN)" : "\(ati) (\(isClone ? "clone" : "ELM327"))" }
+    var summary: String {
+        if isSTN { return "Genuine STN chip: fast mode, long replies OK" }
+        if isClone { return "Clone chip: reply re-sync, short fault lists, busy-retry and voltage correction enabled" }
+        return "ELM327: standard mode"
+    }
+}
+
 enum ELMError: LocalizedError {
     case timeout(String), noData, unableToConnect, error(String)
     var errorDescription: String? {
@@ -21,6 +39,7 @@ actor ELM327 {
     private(set) var protocolNumber = 0
     private(set) var isCAN = true
     private(set) var version = ""
+    private(set) var profile = AdapterProfile(ati: "", sti: "")
 
     init(transport: OBDTransport) {
         self.transport = transport
@@ -93,6 +112,8 @@ actor ELM327 {
             _ = try await send(c, timeout: 2)
         }
         version = (try? await send("ATI").first) ?? ""
+        let sti = (try? await send("STI", timeout: 1).first) ?? ""     // only STN chips understand ST commands
+        profile = AdapterProfile(ati: version, sti: sti)
         _ = try await send("0100", timeout: 10)          // triggers protocol search
         if let dp = try? await send("ATDPN").first {
             let digits = String(dp.uppercased().drop(while: { $0 == "A" }))

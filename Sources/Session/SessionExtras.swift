@@ -22,6 +22,54 @@ enum LastAdapter: Codable, Equatable {
     }
 }
 
+extension LastAdapter {
+    var key: String {
+        switch self {
+        case .ble(let id, _): return "ble:\(id.uuidString)"
+        case .wifi(let h, let p): return "tcp:\(h):\(p)"
+        }
+    }
+}
+
+/// Every adapter used, with its chip profile and the voltmeter correction learned against the car's own voltage.
+struct SavedAdapter: Codable, Identifiable, Equatable {
+    let link: LastAdapter
+    var name: String
+    var profile: AdapterProfile
+    var voltOffset: Double?
+    var lastUsed: Date
+    var id: String { link.key }
+
+    private static let key = "adapters.saved.v1"
+    static func load() -> [SavedAdapter] {
+        guard let d = UserDefaults.standard.data(forKey: key),
+              let a = try? JSONDecoder().decode([SavedAdapter].self, from: d) else { return [] }
+        return a.sorted { $0.lastUsed > $1.lastUsed }
+    }
+    static func save(_ a: [SavedAdapter]) {
+        if let d = try? JSONEncoder().encode(a) { UserDefaults.standard.set(d, forKey: key) }
+    }
+    static func remember(_ link: LastAdapter, profile: AdapterProfile) {
+        var all = load()
+        let old = all.first { $0.id == link.key }
+        all.removeAll { $0.id == link.key }
+        all.append(SavedAdapter(link: link, name: old?.name ?? link.label, profile: profile,
+                                voltOffset: old?.voltOffset, lastUsed: Date()))
+        save(all)
+    }
+    static func learnVoltage(_ link: LastAdapter, adapterV: Double, carV: Double) {
+        var all = load()
+        guard let i = all.firstIndex(where: { $0.id == link.key }) else { return }
+        let d = adapterV - carV
+        all[i].voltOffset = all[i].voltOffset.map { $0 * 0.8 + d * 0.2 } ?? d
+        save(all)
+    }
+    static func offset(_ link: LastAdapter?) -> Double? {
+        guard let link else { return nil }
+        return load().first { $0.id == link.key }?.voltOffset
+    }
+}
+
 /// Hyundai/Kia modules found on a car, remembered per VIN so later scans skip the 2-minute search.
 enum HyundaiModuleMemory {
     private static let key = "hyundai.modules.byVIN.v1"

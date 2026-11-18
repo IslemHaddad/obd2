@@ -64,6 +64,9 @@ final class VehicleSession {
     var report: VehicleReport?
     var reportProgress: (Double, String)?
     var userDisconnected = false
+    var currentLink: LastAdapter?
+    var adapterProfile: AdapterProfile?
+    var savedAdapters: [SavedAdapter] = SavedAdapter.load()
     var knownFaultCodes: Set<String>?
 
     // VAG live data & coding
@@ -134,16 +137,24 @@ final class VehicleSession {
     func connectBLE(_ device: BLEDevice) {
         guard let t = scanner.transport(for: device) else { return }
         LastAdapter.save(.ble(device.id, device.name))
+        currentLink = .ble(device.id, device.name)
         connect(t, label: device.name)
     }
 
     func connectWiFi(host: String, port: UInt16) {
         LastAdapter.save(.wifi(host, port))
+        currentLink = .wifi(host, port)
         connect(WiFiTransport(host: host, port: port), label: "\(host):\(port)")
     }
 
     /// Reconnects to the adapter used last time (BLE by peripheral id, or Wi-Fi host).
+    func connectSaved(_ a: SavedAdapter) {
+        LastAdapter.save(a.link)
+        connectLast()
+    }
+
     func connectLast() {
+        currentLink = LastAdapter.load()
         switch LastAdapter.load() {
         case .ble(let id, let name)?:
             guard let t = scanner.transport(forID: id) else { state = .failed("\(name) not found — scan once"); return }
@@ -177,6 +188,12 @@ final class VehicleSession {
                 try await elm.initialize()
                 self.elm = elm
                 adapterVersion = await elm.version
+                let prof = await elm.profile
+                adapterProfile = prof
+                if let link = currentLink ?? LastAdapter.load() {
+                    SavedAdapter.remember(link, profile: prof)
+                    savedAdapters = SavedAdapter.load()
+                }
                 protocolName = Self.protocolNames[await elm.protocolNumber] ?? "Unknown"
                 supported = await OBDService(elm: elm).supportedPIDs()
                 state = .connected
@@ -249,8 +266,14 @@ final class VehicleSession {
                 }
                 cycle += 1
                 // Car's own module voltage (PID 42) is accurate; cheap adapters' ATRV can read volts off.
-                if let v = r[0x42] { self.batteryVoltage = v }
-                else if cycle % 25 == 0 { self.batteryVoltage = await svc.batteryVoltage() }
+                if let v = r[0x42] {
+                    self.batteryVoltage = v
+                    if cycle % 50 == 5, let link = self.currentLink, let av = await svc.batteryVoltage() {
+                        SavedAdapter.learnVoltage(link, adapterV: av, carV: v)      // learn this adapter's voltmeter error
+                    }
+                } else if cycle % 25 == 0, let av = await svc.batteryVoltage() {
+                    self.batteryVoltage = av - (SavedAdapter.offset(self.currentLink) ?? 0)
+                }
                 if self.wantOil, self.family == .vag, self.vagSupported, cycle % 8 == 0 {
                     self.oilTemp = await svc.readOilTemp()
                 }
