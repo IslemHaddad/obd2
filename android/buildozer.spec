@@ -16,8 +16,6 @@ android.ndk = 25b
 android.archs = arm64-v8a, armeabi-v7a
 android.accept_sdk_license = True
 android.enable_androidx = True
-# bleak's Android backend needs its Java callbacks + its p4a recipe (copied in by CI from the bleak package)
-android.add_src = p4a-recipes/java
 p4a.local_recipes = p4a-recipes
 p4a.branch = v2024.01.21
 

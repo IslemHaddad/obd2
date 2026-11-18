@@ -42,7 +42,6 @@ jobs:
           B=$(python -c "import bleak,os;print(os.path.dirname(bleak.__file__))")
           mkdir -p android/p4a-recipes
           cp -r "$B/backends/p4android/recipes/bleak" android/p4a-recipes/
-          cp -r "$B/backends/p4android/java" android/p4a-recipes/java
           sed -i "s/^version = .*/version = 1.0.${BUILD}/" android/buildozer.spec
 
       - name: Cache Buildozer toolchain + debug keystore (keeps the APK signature stable between builds)
