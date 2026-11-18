@@ -14,81 +14,84 @@ class Car:
 
 
 def side(c: Car, scale=0.25):
+    """Hatch/SUV profile landmarks measured from a real SEAT Ibiza KJ side view (fractions of length / height);
+    the sedan keeps its own roof/boot. Real L/H come from each car's dimensions."""
     L, H = c.L * scale, c.H * scale
     pad = 10
-    GY = H + pad + 6                       # ground line
+    GY = H + pad + 6
     X0 = pad
     suv = c.body == "suv"
     sedan = c.body == "sedan"
-    wr = (0.235 if suv else 0.215) * H     # wheel radius
-    oh = (c.L - c.WB) * scale
-    fo = oh * 0.52
-    fw = X0 + fo                           # wheel centres
-    rw = fw + c.WB * scale
+    wr = (0.235 if suv else 0.224) * H
+    # wheel placement: calibrated on the Ibiza (measured centres 16.5 % / 85.7 % of length vs spec WB/L 0.632)
+    span = min(0.74, c.WB / c.L * 1.095)
+    ff = (1 - span) * 0.535
+    fw, rw = X0 + ff * L, X0 + (ff + span) * L
     cy = GY - wr
-    y = lambda f: GY - f * H               # height fraction → y
-    x = lambda f: X0 + f * L               # length fraction → x
-    clr = 0.12 if suv else 0.09            # ground clearance (bumper bottom)
-    arch = wr * 1.13
-    # outline: start front bumper bottom, go up the nose, over the roof, down the tail, back along the sills.
-    P = [("M", x(0.02), y(clr + 0.05)),
-         ("C", x(0.0), y(clr + 0.12), x(0.0), y(0.40), x(0.012), y(0.47)),                     # nose
-         ("C", x(0.03), y(0.55), x(0.08), y(0.585), x(0.14), y(0.60)),                          # headlight / bonnet edge
-         ("C", x(0.22), y(0.62), x(0.30), y(0.645), x(0.355), y(0.66)),                         # bonnet
-         ("C", x(0.40), y(0.78), x(0.44), y(0.90), x(0.49), y(0.965)),                          # windscreen (steep rake)
-         ("C", x(0.53), y(1.0), x(0.62), y(1.0), x(0.70), y(0.995)),                            # roof
-         *(([("C", x(0.75), y(0.99), x(0.79), y(0.94), x(0.84), y(0.82)),                       # sedan: C-pillar
-             ("C", x(0.86), y(0.775), x(0.90), y(0.765), x(0.975), y(0.75)),                    # boot lid
-             ("C", x(0.99), y(0.745), x(1.0), y(0.70), x(1.0), y(0.62)),
-             ("C", x(1.0), y(0.52), x(1.0), y(0.45), x(0.995), y(0.38))]) if sedan else
-           [("C", x(0.78), y(0.99 if not suv else 0.995), x(0.86), y(0.965 if not suv else 0.985), x(0.905), y(0.94)),
-            ("L", x(0.925), y(0.925)),                                                          # spoiler lip
-            ("C", x(0.945), y(0.86 if not suv else 0.9), x(0.965), y(0.74), x(0.985), y(0.66)), # rear screen
-            ("C", x(1.0), y(0.60), x(1.0), y(0.45), x(0.995), y(0.38))]),                       # tail
-         ("C", x(0.99), y(clr + 0.12), x(0.985), y(clr + 0.05), x(0.965), y(clr + 0.03)),      # rear bumper
-         ("L", rw + arch, y(clr + 0.03)),
-         ("C", rw + arch, cy - arch * 0.55, rw + arch * 0.55, cy - arch, rw, cy - arch),        # rear arch
-         ("C", rw - arch * 0.55, cy - arch, rw - arch, cy - arch * 0.55, rw - arch, y(clr + 0.03)),
-         ("L", fw + arch, y(clr + 0.03)),
-         ("C", fw + arch, cy - arch * 0.55, fw + arch * 0.55, cy - arch, fw, cy - arch),        # front arch
-         ("C", fw - arch * 0.55, cy - arch, fw - arch, cy - arch * 0.55, fw - arch, y(clr + 0.03)),
-         ("Z",)]
-    belt_f, belt_r = 0.66, 0.70                                                                 # rising window line
+    y = lambda f: GY - f * H
+    x = lambda f: X0 + f * L
+    clr = 0.15 if suv else 0.116
+    lift = 0.03 if suv else 0.0
+    arch = wr * 1.12
     if sedan:
-        belt_r = 0.69
-        G = [("M", x(0.375), y(belt_f)),
-             ("C", x(0.41), y(0.76), x(0.45), y(0.87), x(0.495), y(0.935)),
-             ("C", x(0.54), y(0.965), x(0.63), y(0.968), x(0.70), y(0.962)),
-             ("C", x(0.75), y(0.95), x(0.78), y(0.88), x(0.81), y(belt_r + 0.02)),
-             ("C", x(0.70), y(belt_r), x(0.55), y(belt_f + 0.005), x(0.375), y(belt_f)), ("Z",)]
+        roof = [("C", x(0.53), y(1.0), x(0.62), y(1.0), x(0.70), y(0.995)),
+                ("C", x(0.75), y(0.99), x(0.79), y(0.94), x(0.84), y(0.82)),
+                ("C", x(0.86), y(0.775), x(0.90), y(0.765), x(0.975), y(0.75)),
+                ("C", x(0.99), y(0.745), x(1.0), y(0.70), x(1.0), y(0.62)),
+                ("C", x(1.0), y(0.52), x(1.0), y(0.40), x(0.995), y(0.29))]
     else:
-        G = [("M", x(0.375), y(belt_f)),
-             ("C", x(0.41), y(0.76), x(0.45), y(0.87), x(0.495), y(0.935)),
-             ("C", x(0.54), y(0.965), x(0.63), y(0.968), x(0.70), y(0.962)),
-             ("C", x(0.77), y(0.955), x(0.84), y(0.93), x(0.885), y(0.89)),
-             ("C", x(0.90), y(0.84), x(0.905), y(0.78), x(0.90), y(belt_r)),
-             ("C", x(0.75), y(belt_r - 0.01), x(0.55), y(belt_f + 0.005), x(0.375), y(belt_f)), ("Z",)]
-    # thick C-pillar (hatch) / D-pillar (SUV) and slim B-pillar
-    Cp = [("M", x(0.74), y(0.958)), ("C", x(0.76), y(0.93), x(0.785), y(0.86), x(0.81), y(0.71)),
-          ("L", x(0.77), y(0.70)), ("Z",)] if sedan else [("M", x(0.80), y(0.952)), ("C", x(0.84), y(0.935), x(0.875), y(0.91), x(0.885), y(0.89)),
-          ("C", x(0.90), y(0.84), x(0.905), y(0.78), x(0.90), y(belt_r)), ("L", x(0.84), y(belt_r - 0.004)), ("Z",)]
-    Bp = [("M", x(0.615), y(0.968)), ("L", x(0.632), y(0.968)), ("L", x(0.628), y(belt_f + 0.012)),
-          ("L", x(0.611), y(belt_f + 0.012)), ("Z",)]
-    shoulder = [("M", x(0.12), y(0.58)), ("C", x(0.40), y(0.60), x(0.70), y(0.625), x(0.975), y(0.64))]
-    crease = [("M", fw + arch * 1.05, y(0.33)), ("C", x(0.45), y(0.30), x(0.60), y(0.29), rw - arch * 1.05, y(0.31))]
-    head = [("M", x(0.012), y(0.50)), ("C", x(0.04), y(0.565), x(0.09), y(0.59), x(0.15), y(0.60)),
-            ("L", x(0.14), y(0.555)), ("C", x(0.09), y(0.545), x(0.045), y(0.51), x(0.018), y(0.47)), ("Z",)]
-    drl = [("M", x(0.02), y(0.505)), ("C", x(0.05), y(0.56), x(0.095), y(0.58), x(0.14), y(0.585))]
-    tail = [("M", x(0.94), y(0.73)), ("C", x(0.965), y(0.73), x(0.99), y(0.72), x(0.998), y(0.70)),
-            ("L", x(0.999), y(0.64)), ("C", x(0.975), y(0.655), x(0.955), y(0.66), x(0.935), y(0.665)), ("Z",)] if sedan else \
-        [("M", x(0.935), y(0.655)), ("C", x(0.96), y(0.655), x(0.985), y(0.645), x(0.996), y(0.62)),
-            ("L", x(0.997), y(0.56)), ("C", x(0.97), y(0.585), x(0.95), y(0.59), x(0.93), y(0.595)), ("Z",)]
-    mirror = [("M", x(0.385), y(0.67)), ("C", x(0.39), y(0.72), x(0.42), y(0.735), x(0.445), y(0.72)),
-              ("L", x(0.44), y(0.68)), ("C", x(0.42), y(0.665), x(0.40), y(0.66), x(0.385), y(0.67)), ("Z",)]
-    sill = [("M", fw + arch * 1.1, y(clr + 0.075)), ("L", rw - arch * 1.1, y(clr + 0.075))]
-    handles = [("M", x(0.50), y(0.585)), ("L", x(0.545), y(0.585)), ("M", x(0.70), y(0.60)), ("L", x(0.745), y(0.60))]
-    cladding = [("M", fw - arch, y(clr + 0.03)), ("C", fw - arch, cy - arch * 0.55, fw - arch * 0.55, cy - arch, fw, cy - arch),
-                ("C", fw + arch * 0.55, cy - arch, fw + arch, cy - arch * 0.55, fw + arch, y(clr + 0.03))] if suv else []
+        roof = [("C", x(0.48), y(0.99), x(0.53), y(1.0), x(0.59), y(1.0)),
+                ("C", x(0.66), y(1.0), x(0.73), y(1.0 if not suv else 1.0), x(0.78), y(0.996)),
+                ("C", x(0.82), y(0.99), x(0.85), y(0.97), x(0.87), y(0.944)),               # spoiler
+                ("C", x(0.90), y(0.89 if not suv else 0.91), x(0.93), y(0.82), x(0.95), y(0.763)),   # rear screen
+                ("C", x(0.965), y(0.73), x(0.977), y(0.715), x(0.984), y(0.70)),
+                ("C", x(0.995), y(0.60), x(1.0), y(0.45), x(1.0), y(0.29))]                # tail
+    P = [("M", x(0.013), y(clr + 0.02)),
+         ("C", x(-0.002), y(0.25 + lift), x(-0.004), y(0.38 + lift), x(0.0), y(0.44 + lift)),          # nose
+         ("C", x(0.008), y(0.50 + lift), x(0.025), y(0.535 + lift), x(0.045), y(0.546 + lift)),       # headlight corner
+         ("C", x(0.12), y(0.585 + lift), x(0.22), y(0.645 + lift / 2), x(0.278), y(0.677)),          # bonnet
+         ("C", x(0.33), y(0.77), x(0.38), y(0.90), x(0.43), y(0.957)),                               # windscreen
+         *roof,
+         ("C", x(1.0), y(0.2), x(0.995), y(clr + 0.01), x(0.976), y(clr)),                            # rear bumper
+         ("L", rw + arch, y(clr)),
+         ("C", rw + arch, cy - arch * 0.55, rw + arch * 0.55, cy - arch, rw, cy - arch),
+         ("C", rw - arch * 0.55, cy - arch, rw - arch, cy - arch * 0.55, rw - arch, y(clr)),
+         ("L", fw + arch, y(clr)),
+         ("C", fw + arch, cy - arch * 0.55, fw + arch * 0.55, cy - arch, fw, cy - arch),
+         ("C", fw - arch * 0.55, cy - arch, fw - arch, cy - arch * 0.55, fw - arch, y(clr)),
+         ("Z",)]
+    if sedan:
+        G = [("M", x(0.335), y(0.70)), ("C", x(0.37), y(0.80), x(0.40), y(0.89), x(0.435), y(0.935)),
+             ("C", x(0.50), y(0.965), x(0.62), y(0.968), x(0.70), y(0.962)),
+             ("C", x(0.75), y(0.95), x(0.78), y(0.88), x(0.81), y(0.715)),
+             ("C", x(0.70), y(0.71), x(0.50), y(0.705), x(0.335), y(0.70)), ("Z",)]
+        Cp = [("M", x(0.74), y(0.958)), ("C", x(0.76), y(0.93), x(0.785), y(0.86), x(0.81), y(0.715)),
+              ("L", x(0.77), y(0.712)), ("Z",)]
+    else:
+        G = [("M", x(0.335), y(0.70)), ("C", x(0.37), y(0.80), x(0.40), y(0.89), x(0.435), y(0.935)),
+             ("C", x(0.50), y(0.965), x(0.62), y(0.968), x(0.75), y(0.96)),
+             ("C", x(0.80), y(0.955), x(0.83), y(0.93), x(0.85), y(0.89)),
+             ("L", x(0.862), y(0.735)), ("C", x(0.70), y(0.725), x(0.50), y(0.71), x(0.335), y(0.70)), ("Z",)]
+        Cp = [("M", x(0.80), y(0.955)), ("C", x(0.83), y(0.93), x(0.845), y(0.90), x(0.85), y(0.89)),
+              ("L", x(0.862), y(0.735)), ("L", x(0.82), y(0.731)), ("Z",)]
+    Bp = [("M", x(0.567), y(0.968)), ("L", x(0.582), y(0.968)), ("L", x(0.578), y(0.712)), ("L", x(0.563), y(0.712)), ("Z",)]
+    shoulder = [("M", x(0.08), y(0.53 + lift)), ("C", x(0.40), y(0.58), x(0.70), y(0.64), x(0.965), y(0.69))]
+    crease = [("M", fw + arch * 1.05, y(0.30 + lift)), ("C", x(0.45), y(0.30 + lift), x(0.62), y(0.31 + lift), rw - arch * 1.05, y(0.33 + lift))]
+    head = [("M", x(0.004), y(0.47 + lift)), ("C", x(0.02), y(0.53 + lift), x(0.06), y(0.555 + lift), x(0.12), y(0.565 + lift)),
+            ("L", x(0.115), y(0.53 + lift)), ("C", x(0.07), y(0.515 + lift), x(0.035), y(0.49 + lift), x(0.01), y(0.43 + lift)), ("Z",)]
+    drl = [("M", x(0.012), y(0.475 + lift)), ("C", x(0.035), y(0.53 + lift), x(0.07), y(0.545 + lift), x(0.11), y(0.55 + lift))]
+    if sedan:
+        tail = [("M", x(0.94), y(0.73)), ("C", x(0.965), y(0.73), x(0.99), y(0.72), x(0.998), y(0.70)),
+                ("L", x(0.999), y(0.64)), ("C", x(0.975), y(0.655), x(0.955), y(0.66), x(0.935), y(0.665)), ("Z",)]
+    else:
+        tail = [("M", x(0.905), y(0.745)), ("C", x(0.94), y(0.745), x(0.975), y(0.72), x(0.99), y(0.69)),
+                ("L", x(0.997), y(0.62)), ("C", x(0.97), y(0.64), x(0.935), y(0.665), x(0.90), y(0.685)), ("Z",)]
+    mirror = [("M", x(0.355), y(0.665)), ("C", x(0.36), y(0.71), x(0.39), y(0.725), x(0.42), y(0.712)),
+              ("L", x(0.415), y(0.675)), ("C", x(0.395), y(0.66), x(0.37), y(0.655), x(0.355), y(0.665)), ("Z",)]
+    sill = [("M", fw + arch * 1.1, y(clr + 0.055)), ("L", rw - arch * 1.1, y(clr + 0.055))]
+    handles = [("M", x(0.49), y(0.62)), ("L", x(0.535), y(0.62)), ("M", x(0.72), y(0.64)), ("L", x(0.765), y(0.64))]
+    cladding = [("M", fw - arch, y(clr)), ("C", fw - arch, cy - arch * 0.55, fw - arch * 0.55, cy - arch, fw, cy - arch),
+                ("C", fw + arch * 0.55, cy - arch, fw + arch, cy - arch * 0.55, fw + arch, y(clr))] if suv else []
     return {"W": X0 * 2 + L, "H": GY + 8, "ground": GY, "body": P, "glass": G, "c_pillar": Cp, "b_pillar": Bp,
             "shoulder": shoulder, "crease": crease, "headlight": head, "drl": drl, "taillight": tail, "mirror": mirror,
             "sill": sill, "handles": handles, "wheels": [(fw, cy, wr), (rw, cy, wr)], "cladding": cladding, "suv": suv}
