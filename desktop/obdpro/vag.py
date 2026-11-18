@@ -145,6 +145,7 @@ class VAG:
 
         def __enter__(self):
             self.vag.elm.lock.acquire()
+            self.vag.m_req, self.vag.m_resp = self.m.request, self.m.response
             for c in ("ATSH" + self.m.request, "ATCRA" + self.m.response, "ATFCSH" + self.m.request,
                       "ATFCSD300000", "ATFCSM1"):
                 try:
@@ -265,11 +266,25 @@ class VAG:
             return False
 
     def _try_obd_clear(self) -> bool:
-        """SAE J1979 mode 04 sent physically to this ECU (header already set by the channel)."""
+        """SAE J1979 mode 04: first physically to this ECU, then functionally (7DF) — some VAG engine ECUs
+        only accept the functional request."""
         try:
             d = self.elm.request_uds("04", 5, pending_wait=8)
             if 0x44 in d:
                 return True
+            for c in ("ATFCSM0", "ATCRA", "ATSH7DF"):
+                self.elm.send(c, 1)
+            try:
+                d2 = self.elm.request_uds("04", 5, pending_wait=8)
+            finally:
+                for c in ("ATSH" + self.m_req, "ATCRA" + self.m_resp, "ATFCSM1"):
+                    try:
+                        self.elm.send(c, 1)
+                    except ELMError:
+                        pass
+            if 0x44 in d2:
+                return True
+            d = d2
             n = _negative(d, 0x04)
             if n and n.nrc == 0x22:
                 self._last_nrc = "conditions not correct — switch the ENGINE OFF, keep ignition ON"
