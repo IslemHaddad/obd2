@@ -358,16 +358,16 @@ final class VehicleSession {
         await exclusive { svc in
             vagSupported = await svc.supportsVAG
             guard vagSupported else { return }
-            if family == .hyundai {
+            if family.discovered {
                 let key = vin ?? ""
                 if rediscover || HyundaiModuleMemory.load(key).isEmpty {
                     vagScanProgress = 0
                     discoverProgress = (0, 0)
-                    let found = await svc.hyundaiDiscover { p, n in await MainActor.run { self.discoverProgress = (p, n) } }
+                    let found = await svc.hyundaiDiscover(family: family) { p, n in await MainActor.run { self.discoverProgress = (p, n) } }
                     HyundaiModuleMemory.save(key, found.map(\.address))
                     discoverProgress = nil
                 }
-                vagModules = HyundaiModuleMemory.load(key).map(VAGModule.hyundai)
+                vagModules = HyundaiModuleMemory.load(key).map { VAGModule.discovered($0, family) }
             } else {
                 vagModules = VAGModule.all
             }
@@ -376,7 +376,7 @@ final class VehicleSession {
             for (i, m) in all.enumerated() {
                 vagScanProgress = Double(i) / Double(max(all.count, 1))
                 let r: VAGReport
-                if family == .hyundai { r = await svc.hyundaiReport(m) }
+                if family.discovered { r = await svc.hyundaiReport(m) }
                 else { r = await svc.vagReport(m) ?? VAGReport(module: m, present: false, faults: []) }
                 if r.present { recordFaults(module: m, faults: r.faults) }
                 out.append(r)
@@ -389,9 +389,9 @@ final class VehicleSession {
     /// Clears one VAG module only, then re-reads that module.
     func clearVAG(_ m: VAGModule) async throws {
         try await exclusive { svc in
-            if family == .hyundai { try await svc.hyundaiClear(m) } else { try await svc.vagClear(m) }
+            if family.discovered { try await svc.hyundaiClear(m) } else { try await svc.vagClear(m) }
             recordClear(module: m)
-            let r = family == .hyundai ? await svc.hyundaiReport(m) : await svc.vagReport(m)
+            let r = family.discovered ? await svc.hyundaiReport(m) : await svc.vagReport(m)
             if let r, let i = vagReports.firstIndex(where: { $0.module == m }) {
                 vagReports[i] = r
                 recordFaults(module: m, faults: r.faults)
@@ -449,7 +449,7 @@ final class VehicleSession {
     }
 
     func readIdentification(_ m: VAGModule) async -> [(String, String)] {
-        if family == .hyundai {
+        if family.discovered {
             return (await exclusive { svc in await svc.hyundaiIdentification(m) }) ?? []
         }
         return (await exclusive { svc in

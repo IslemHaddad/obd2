@@ -113,7 +113,7 @@ struct VehicleView: View {
             }
             .controlSize(.large)
             .padding(.horizontal, 20)
-            if s.family == .hyundai {
+            if s.family.discovered {
                 Button { run { await s.scanVAG(rediscover: true) } } label: {
                     Label("Re-discover modules (≈2 min)", systemImage: "dot.radiowaves.left.and.right")
                 }

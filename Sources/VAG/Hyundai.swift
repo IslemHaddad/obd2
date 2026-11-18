@@ -8,7 +8,7 @@ import Foundation
 extension OBDService {
     static let hyundaiProbes = ["3E00", "3E01", "1081", "1003"]
 
-    func hyundaiDiscover(progress: @escaping (Double, Int) async -> Void) async -> [VAGModule] {
+    func hyundaiDiscover(family: VAGBrand.Family = .hyundai, progress: @escaping (Double, Int) async -> Void) async -> [VAGModule] {
         var found = [VAGModule]()
         let ids = (0x700..<0x7E8).filter { $0 != 0x7DF }
         _ = try? await elm.send("ATH1", timeout: 1)
@@ -16,12 +16,18 @@ extension OBDService {
         for (n, rid) in ids.enumerated() {
             if n % 8 == 0 { await progress(Double(n) / Double(ids.count), found.count) }
             let req = String(format: "%03X", rid)
-            let want = String(format: "%03X", rid + 8)
+            let wants = family.offsets.map { String(format: "%03X", rid + $0) }
             guard (try? await elm.send("ATSH" + req, timeout: 1)) != nil else { continue }
             for probe in Self.hyundaiProbes {
                 guard let lines = try? await elm.send(probe, timeout: 0.4) else { continue }
-                if lines.contains(where: { $0.replacingOccurrences(of: " ", with: "").uppercased().hasPrefix(want) }) {
-                    found.append(VAGModule.hyundai(req))
+                let flat = lines.map { $0.replacingOccurrences(of: " ", with: "").uppercased() }
+                if let hit = wants.first(where: { w in flat.contains { $0.hasPrefix(w) } }) {
+                    var m = VAGModule.discovered(req, family)
+                    if m.response != hit {
+                        m = VAGModule(address: m.address, name: m.name, request: m.request, response: hit,
+                                      category: m.category, spot: m.spot, icon: m.icon)
+                    }
+                    found.append(m)
                     _ = try? await elm.send("1001", timeout: 0.4)   // back to default session
                     break
                 }
@@ -70,8 +76,9 @@ extension OBDService {
     }
 
     private func hyKWPFaults() async -> [VAGFault]? {
-        for cmd in ["1800FF00", "1802FF00"] {
-            guard let d = try? await elm.requestUDS(cmd, timeout: 2), let r = positive(d, sid: 0x58), r.count >= 2 else { continue }
+        // 18 = KWP readDTCByStatus (Hyundai/Kia); 17 FF00 = readStatusOfDTC on older Renault ECUs
+        for (cmd, pos) in [("1800FF00", UInt8(0x58)), ("1802FF00", 0x58), ("17FF00", 0x57)] {
+            guard let d = try? await elm.requestUDS(cmd, timeout: 2), let r = positive(d, sid: pos), r.count >= 2 else { continue }
             let rec = Array(r.dropFirst(2))
             var out = [VAGFault]()
             var j = 0

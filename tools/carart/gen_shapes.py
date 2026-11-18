@@ -13,6 +13,11 @@ SHAPES = {
     "arona": param.Car(4138, 1780, 1552, 2566, "suv"),
     "grandi10": param.Car(3765, 1660, 1520, 2425, "hatch"),
     "i10": param.Car(3645, 1660, 1500, 2385, "hatch"),
+    "clio4": param.Car(4062, 1732, 1448, 2589, "hatch"),
+    "clio5": param.Car(4050, 1798, 1440, 2585, "hatch"),
+    "captur": param.Car(4122, 1778, 1567, 2606, "suv"),
+    "megane": param.Car(4359, 1814, 1446, 2669, "hatch"),
+    "symbol": param.Car(4346, 1733, 1517, 2634, "sedan"),
 }
 
 
@@ -47,7 +52,7 @@ def main(out):
             f'            mirror: {enc(d["mirror"])}, sill: {enc(d["sill"])}, handles: {enc(d["handles"])},\n'
             f'            cladding: {enc(d["cladding"])},\n'
             f'            wheels: [' + ", ".join(f"[{a:.1f}, {b:.1f}, {c:.1f}]" for a, b, c in d["wheels"]) + "])")
-        fr = {g: param.front(car, grille=g) for g in ("seat", "hyundai", "kia")}
+        fr = {g: param.front(car, grille=g) for g in ("seat", "hyundai", "kia", "renault")}
         f = fr["seat"]
         grilles = ", ".join(f'"{g}": {enc(fr[g]["grille"])}' for g in fr)
         fronts.append(

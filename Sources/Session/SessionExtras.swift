@@ -165,8 +165,8 @@ extension OBDService {
 
 extension VehicleSession {
     func refreshModuleList() {
-        if family == .hyundai {
-            vagModules = HyundaiModuleMemory.load(vin ?? "").map(VAGModule.hyundai)
+        if family.discovered {
+            vagModules = HyundaiModuleMemory.load(vin ?? "").map { VAGModule.discovered($0, family) }
         } else {
             vagModules = VAGModule.all
         }
@@ -266,16 +266,16 @@ extension VehicleSession {
             reportProgress = (0.1, "Generic OBD-II codes")
             for ecu in await svc.discoverECUs() { r.obdCodes.append((ecu.name, await svc.dtcs(for: ecu))) }
             if await svc.supportsVAG {
-                var mods = fam == .hyundai ? HyundaiModuleMemory.load(r.vin ?? "").map(VAGModule.hyundai) : VAGModule.all
-                if fam == .hyundai && mods.isEmpty {
+                var mods = fam.discovered ? HyundaiModuleMemory.load(r.vin ?? "").map { VAGModule.discovered($0, family) } : VAGModule.all
+                if fam.discovered && mods.isEmpty {
                     reportProgress = (0.12, "Searching for modules on the car")
-                    let found = await svc.hyundaiDiscover { _, _ in }
+                    let found = await svc.hyundaiDiscover(family: fam) { _, _ in }
                     HyundaiModuleMemory.save(r.vin ?? "", found.map(\.address))
                     mods = found
                 }
                 for (i, m) in mods.enumerated() {
                     reportProgress = (0.15 + 0.75 * Double(i) / Double(max(mods.count, 1)), "\(m.address) · \(m.name)")
-                    let rep: VAGReport = fam == .hyundai ? await svc.hyundaiReport(m)
+                    let rep: VAGReport = fam.discovered ? await svc.hyundaiReport(m)
                         : (await svc.vagReport(m) ?? VAGReport(module: m, present: false, faults: []))
                     if rep.present { recordFaults(module: m, faults: rep.faults) }
                     r.modules.append(.init(address: m.address, name: m.name, present: rep.present,

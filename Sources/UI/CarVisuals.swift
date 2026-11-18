@@ -12,7 +12,7 @@ struct CarArt {
     let grille: Grille
     let geo: CarGeometry
     let shapeKey: String
-    enum Grille { case seat, hyundai, kia, vw, generic }
+    enum Grille { case seat, hyundai, kia, renault, vw, generic }
 
     init(_ v: SelectedVehicle) {
         color = v.brand.color
@@ -26,6 +26,11 @@ struct CarArt {
         else if n.contains("arona") { shapeKey = "arona" }
         else if n.contains("ibiza") { shapeKey = "ibiza" }
         else if n.contains("leon") || n.contains("león") { shapeKey = "leon" }
+        else if n.contains("clio iv") { shapeKey = "clio4" }
+        else if n.contains("clio") { shapeKey = "clio5" }
+        else if n.contains("captur") { shapeKey = "captur" }
+        else if n.contains("mégane") || n.contains("megane") { shapeKey = "megane" }
+        else if n.contains("symbol") || v.model.body == .sedan { shapeKey = "symbol" }
         else {
             switch v.model.body {
             case .suv, .van: shapeKey = "arona"
@@ -45,6 +50,7 @@ struct CarArt {
         case .seat, .cupra: grille = .seat
         case .hyundai: grille = .hyundai
         case .kia: grille = .kia
+        case .renault: grille = .renault
         case .vw, .skoda, .audi: grille = .vw
         default: grille = .generic
         }
@@ -149,7 +155,7 @@ struct CarFrontView: View {
             let led = Color(red: 0.78, green: 0.96, blue: 1)
             ctx.stroke(P(d.drlL), with: .color(led), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
             ctx.stroke(P(d.drlR), with: .color(led), style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-            let gkey: String = { switch art.grille { case .hyundai: "hyundai"; case .kia: "kia"; default: "seat" } }()
+            let gkey: String = { switch art.grille { case .hyundai: "hyundai"; case .kia: "kia"; case .renault: "renault"; default: "seat" } }()
             if let g = d.grilles[gkey] {
                 ctx.fill(P(g), with: .color(Color(white: 0.06)))
                 ctx.stroke(P(g), with: .color(Color(white: 0.78)), lineWidth: 1.6)
@@ -157,8 +163,10 @@ struct CarFrontView: View {
             ctx.fill(P(d.intakeL), with: .color(Color(white: 0.06)))
             ctx.fill(P(d.intakeR), with: .color(Color(white: 0.06)))
             ctx.fill(P(d.lower), with: .color(Color(white: 0.06)))
-            ctx.draw(Text(art.brand).font(.system(size: max(7, 9 * k * 1.6), weight: .heavy, design: .rounded)).foregroundColor(.white),
-                     at: t(d.badge.x, d.badge.y))
+            if art.grille != .renault {                 // Renault: the diamond in the grille is the badge
+                ctx.draw(Text(art.brand).font(.system(size: max(7, 9 * k * 1.6), weight: .heavy, design: .rounded)).foregroundColor(.white),
+                         at: t(d.badge.x, d.badge.y))
+            }
         }
     }
 }
