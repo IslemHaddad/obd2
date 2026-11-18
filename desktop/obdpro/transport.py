@@ -159,7 +159,8 @@ class BLETransport(Transport):
 
 def list_serial_ports() -> list[tuple[str, str]]:
     from serial.tools import list_ports
-    out = [(p.device, f"{p.device} — {p.description}") for p in list_ports.comports()]
+    out = [(p.device, f"{p.device} — {p.description}") for p in list_ports.comports()
+           if not (p.device.startswith("/dev/ttyS") and p.description in ("n/a", ""))]
     import glob
     for dev in sorted(glob.glob("/dev/rfcomm*")):
         if dev not in [d for d, _ in out]:
