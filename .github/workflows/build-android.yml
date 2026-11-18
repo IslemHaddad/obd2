@@ -21,20 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
-
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
 
-      - name: System packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y zip unzip autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev \
-            libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
-
-      - name: Buildozer
-        run: pip install "buildozer" "cython<3" bleak
+      - name: Fetch bleak (for its Android recipe only)
+        run: pip install bleak
 
       - name: Bundle the shared diagnostic core + bleak Android backend
         run: |
@@ -44,20 +35,19 @@ jobs:
           cp -r "$B/backends/p4android/recipes/bleak" android/p4a-recipes/
           sed -i "s/^version = .*/version = 1.0.${BUILD}/" android/buildozer.spec
 
-      - name: Cache Buildozer toolchain + debug keystore (keeps the APK signature stable between builds)
+      - name: Cache Buildozer global dir (keeps the debug keystore stable so updates install over old)
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.buildozer
-            ~/.android
-          key: buildozer-${{ hashFiles('android/buildozer.spec') }}
-          restore-keys: buildozer-
+          path: ~/.buildozer
+          key: buildozer-global-v2
+          restore-keys: buildozer-global-
 
-      - name: Build APK
-        working-directory: android
-        run: |
-          set -o pipefail
-          yes | buildozer android debug 2>&1 | tee build.log | tail -n 200
+      - name: Build APK (maintained buildozer docker image with a known-good toolchain)
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android debug
+          workdir: android
+          buildozer_version: stable
 
       - name: Publish (stable download link)
         env:
@@ -76,9 +66,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          { echo "Android build ${BUILD} failed at ${GITHUB_SHA}"; echo '```';
-            (grep -nE "Error|error:|Exception|FAILED|Traceback" android/build.log | tail -60; echo ----; tail -80 android/build.log) 2>/dev/null;
-            echo '```'; } > errors.md
+          { echo "Android build ${BUILD} failed at ${GITHUB_SHA} — open the Actions run log for details"; } > errors.md
           gh release delete android-ci-errors --yes --cleanup-tag 2>/dev/null || true
           gh release create android-ci-errors --prerelease --latest=false --title "Android CI errors" --notes-file errors.md --target "$GITHUB_SHA"
 

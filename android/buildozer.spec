@@ -12,12 +12,10 @@ fullscreen = 0
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_SCAN,BLUETOOTH_CONNECT,ACCESS_FINE_LOCATION,ACCESS_COARSE_LOCATION
 android.api = 34
 android.minapi = 24
-android.ndk = 25b
 android.archs = arm64-v8a, armeabi-v7a
 android.accept_sdk_license = True
 android.enable_androidx = True
 p4a.local_recipes = p4a-recipes
-p4a.branch = v2024.01.21
 
 [buildozer]
 log_level = 2
