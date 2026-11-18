@@ -43,12 +43,26 @@ jobs:
       - name: Build APK
         run: |
           mkdir -p buildozer-home
+          set -o pipefail
           docker run --rm \
             --user root \
             -e HOME=/home/user \
             -v "$PWD/android":/home/user/hostcwd \
             -v "$PWD/buildozer-home":/home/user/.buildozer \
-            kivy/buildozer android debug
+            kivy/buildozer android debug 2>&1 | tee build.log
+
+      - name: Publish build errors (readable without login)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "Android build ${BUILD} failed at ${GITHUB_SHA}"; echo '```';
+            grep -iE "error|exception|traceback|no such|not found|failed|could not|aidl|recipe" build.log \
+              | grep -viE "badsyntax|performance hint|from __future__|future feature|not a chance|uft-8|utf8 with BOM|rested_snopes|leading zeros|invalid character|unicode error|unknown encoding|encoding problem" \
+              | tail -50;
+            echo ----; tail -60 build.log; echo '```'; } > errors.md 2>/dev/null || echo "no log" > errors.md
+          gh release delete android-ci-errors --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-ci-errors --prerelease --latest=false --title "Android CI errors" --notes-file errors.md --target "$GITHUB_SHA"
 
       - uses: actions/upload-artifact@v4
         with:
