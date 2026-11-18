@@ -1,0 +1,22 @@
+name: OBDPro
+options:
+  bundleIdPrefix: com.obdpro
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  OBDPro:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
+        SWIFT_OPTIMIZATION_LEVEL: "-O"
+        SWIFT_COMPILATION_MODE: wholemodule
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Connect to your OBD2 Bluetooth LE adapter."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connect to your OBD2 Wi-Fi adapter."
+        INFOPLIST_KEY_UIBackgroundModes: bluetooth-central
+        PRODUCT_BUNDLE_IDENTIFIER: com.obdpro.app

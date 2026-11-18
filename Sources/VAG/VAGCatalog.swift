@@ -1,0 +1,167 @@
+import SwiftUI
+
+// MARK: - VW Group brands / models
+
+enum BodyType: String, Codable, CaseIterable {
+    case hatch, sedan, estate, suv, coupe, van
+    /// Length / width ratio of the top-view silhouette.
+    var aspect: CGFloat {
+        switch self { case .hatch: 2.15; case .sedan: 2.45; case .estate: 2.5; case .suv: 2.25; case .coupe: 2.35; case .van: 2.55 }
+    }
+}
+
+struct CarModel: Identifiable, Hashable, Codable {
+    let name: String
+    let body: BodyType
+    var id: String { name }
+}
+
+enum VAGBrand: String, CaseIterable, Identifiable, Codable {
+    case seat = "SEAT", cupra = "CUPRA", vw = "Volkswagen", audi = "Audi", skoda = "Škoda",
+         porsche = "Porsche", bentley = "Bentley", lamborghini = "Lamborghini"
+    var id: String { rawValue }
+
+    var color: Color {
+        switch self {
+        case .seat: Color(red: 0.86, green: 0.12, blue: 0.16)
+        case .cupra: Color(red: 0.72, green: 0.45, blue: 0.29)
+        case .vw: Color(red: 0.0, green: 0.28, blue: 0.6)
+        case .audi: Color(white: 0.75)
+        case .skoda: Color(red: 0.31, green: 0.66, blue: 0.24)
+        case .porsche: Color(red: 0.8, green: 0.6, blue: 0.2)
+        case .bentley: Color(red: 0.1, green: 0.35, blue: 0.25)
+        case .lamborghini: Color(red: 0.95, green: 0.75, blue: 0.1)
+        }
+    }
+
+    var models: [CarModel] {
+        func m(_ n: String, _ b: BodyType) -> CarModel { CarModel(name: n, body: b) }
+        switch self {
+        case .seat: return [m("Ibiza", .hatch), m("Leon", .hatch), m("Leon Sportstourer", .estate), m("Arona", .suv),
+                            m("Ateca", .suv), m("Tarraco", .suv), m("Alhambra", .van), m("Toledo", .sedan),
+                            m("Mii", .hatch), m("Altea", .van), m("Exeo", .sedan)]
+        case .cupra: return [m("Born", .hatch), m("Formentor", .suv), m("Leon", .hatch), m("Ateca", .suv),
+                             m("Tavascan", .suv), m("Terramar", .suv)]
+        case .vw: return [m("Up!", .hatch), m("Polo", .hatch), m("Golf", .hatch), m("Golf Variant", .estate),
+                          m("Golf Plus", .van), m("Jetta", .sedan), m("Passat", .sedan), m("Passat Variant", .estate),
+                          m("Arteon", .coupe), m("Scirocco", .coupe), m("Beetle", .coupe), m("Taigo", .suv),
+                          m("T-Cross", .suv), m("T-Roc", .suv), m("Tiguan", .suv), m("Touareg", .suv),
+                          m("Touran", .van), m("Sharan", .van), m("Caddy", .van), m("Transporter", .van),
+                          m("Amarok", .suv), m("ID.3", .hatch), m("ID.4", .suv), m("ID.5", .suv), m("ID.7", .sedan),
+                          m("ID. Buzz", .van)]
+        case .audi: return [m("A1", .hatch), m("A3", .hatch), m("A4", .sedan), m("A4 Avant", .estate), m("A5", .coupe),
+                            m("A6", .sedan), m("A6 Avant", .estate), m("A7", .coupe), m("A8", .sedan), m("Q2", .suv),
+                            m("Q3", .suv), m("Q4 e-tron", .suv), m("Q5", .suv), m("Q7", .suv), m("Q8", .suv),
+                            m("e-tron GT", .coupe), m("TT", .coupe), m("R8", .coupe)]
+        case .skoda: return [m("Citigo", .hatch), m("Fabia", .hatch), m("Rapid", .sedan), m("Scala", .hatch),
+                             m("Octavia", .sedan), m("Octavia Combi", .estate), m("Superb", .sedan),
+                             m("Superb Combi", .estate), m("Kamiq", .suv), m("Karoq", .suv), m("Kodiaq", .suv),
+                             m("Yeti", .suv), m("Roomster", .van), m("Enyaq", .suv), m("Elroq", .suv)]
+        case .porsche: return [m("911", .coupe), m("718", .coupe), m("Panamera", .sedan), m("Taycan", .sedan),
+                               m("Macan", .suv), m("Cayenne", .suv)]
+        case .bentley: return [m("Continental GT", .coupe), m("Flying Spur", .sedan), m("Bentayga", .suv)]
+        case .lamborghini: return [m("Huracán", .coupe), m("Revuelto", .coupe), m("Urus", .suv)]
+        }
+    }
+
+    /// World Manufacturer Identifier → brand.
+    static func from(vin: String) -> VAGBrand? {
+        let w = String(vin.prefix(3)).uppercased()
+        switch w {
+        case "VSS": return .seat
+        case "WVW", "WVG", "WV1", "WV2", "1VW", "3VW", "9BW", "LSV", "LFV", "XW8", "AAV": return .vw
+        case "WAU", "WUA", "TRU", "WA1": return .audi
+        case "TMB", "TMP": return .skoda
+        case "WP0", "WP1": return .porsche
+        case "SCB", "SJA": return .bentley
+        case "ZHW": return .lamborghini
+        default: return nil
+        }
+    }
+}
+
+struct SelectedVehicle: Codable, Equatable {
+    var brand: VAGBrand
+    var model: CarModel
+    var year: Int?
+
+    private static let key = "vehicle.selected.v1"
+    static func load() -> SelectedVehicle? {
+        guard let d = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(SelectedVehicle.self, from: d)
+    }
+    static func save(_ v: SelectedVehicle?) {
+        if let v, let d = try? JSONEncoder().encode(v) { UserDefaults.standard.set(d, forKey: key) }
+        else { UserDefaults.standard.removeObject(forKey: key) }
+    }
+}
+
+// MARK: - VAG control modules (UDS on CAN 11-bit, MQB/MLB-evo/MEB platforms)
+
+struct VAGModule: Identifiable, Hashable {
+    enum Category { case powertrain, chassis, safety, electronics
+        /// Glow colour on the car diagram.
+        var color: Color {
+            switch self { case .powertrain: .orange; case .chassis: .orange; case .safety: .red; case .electronics: .yellow }
+        }
+    }
+    let address: String          // VAG address word, e.g. "17"
+    let name: String
+    let request: String          // CAN ID we send on
+    let response: String         // CAN ID module answers on
+    let category: Category
+    let spot: CGPoint            // normalized position on top-view (x: 0 left…1 right, y: 0 front…1 rear)
+    let icon: String
+    var id: String { address }
+    static func == (a: VAGModule, b: VAGModule) -> Bool { a.address == b.address }
+    func hash(into h: inout Hasher) { h.combine(address) }
+
+    static let all: [VAGModule] = [
+        .init(address: "01", name: "Engine Electronics", request: "7E0", response: "7E8", category: .powertrain, spot: .init(x: 0.5, y: 0.14), icon: "engine.combustion"),
+        .init(address: "02", name: "Transmission", request: "7E1", response: "7E9", category: .powertrain, spot: .init(x: 0.5, y: 0.27), icon: "gearshape.2"),
+        .init(address: "03", name: "Brakes / ABS", request: "713", response: "77D", category: .chassis, spot: .init(x: 0.27, y: 0.2), icon: "exclamationmark.brakesignal"),
+        .init(address: "44", name: "Steering Assist", request: "712", response: "77C", category: .chassis, spot: .init(x: 0.7, y: 0.22), icon: "steeringwheel"),
+        .init(address: "08", name: "Air Conditioning", request: "746", response: "7B0", category: .electronics, spot: .init(x: 0.5, y: 0.41), icon: "fan"),
+        .init(address: "09", name: "Central Electrics", request: "70E", response: "778", category: .electronics, spot: .init(x: 0.2, y: 0.42), icon: "bolt.car"),
+        .init(address: "15", name: "Airbags", request: "715", response: "77F", category: .safety, spot: .init(x: 0.5, y: 0.5), icon: "airbag"),
+        .init(address: "16", name: "Steering Column Electr.", request: "70C", response: "776", category: .electronics, spot: .init(x: 0.33, y: 0.41), icon: "dial.medium"),
+        .init(address: "17", name: "Instruments", request: "714", response: "77E", category: .electronics, spot: .init(x: 0.33, y: 0.34), icon: "gauge.open.with.lines.needle.33percent"),
+        .init(address: "19", name: "Gateway", request: "710", response: "77A", category: .electronics, spot: .init(x: 0.66, y: 0.44), icon: "point.3.connected.trianglepath.dotted"),
+        .init(address: "5F", name: "Infotainment", request: "773", response: "7DD", category: .electronics, spot: .init(x: 0.5, y: 0.34), icon: "music.note.tv"),
+        .init(address: "42", name: "Driver Door", request: "74A", response: "7B4", category: .electronics, spot: .init(x: 0.06, y: 0.5), icon: "door.left.hand.open"),
+        .init(address: "52", name: "Passenger Door", request: "74B", response: "7B5", category: .electronics, spot: .init(x: 0.94, y: 0.5), icon: "door.right.hand.open"),
+    ]
+}
+
+struct VAGFault: Identifiable, Hashable {
+    let dtc: String          // e.g. "B116C"
+    let failureType: UInt8   // ISO 15031-6 FTB
+    let status: UInt8
+    var id: String { dtc + String(format: "%02X", failureType) }
+    var code: String { String(format: "%@ %02X", dtc, failureType) }
+    var active: Bool { status & 0x01 != 0 }
+    var confirmed: Bool { status & 0x08 != 0 }
+    var description: String { DTCDatabase.describe(dtc) }
+    var detail: String { VAGFault.ftb[failureType] ?? String(format: "Fault type %02X", failureType) }
+
+    static let ftb: [UInt8: String] = [
+        0x00: "No sub-type", 0x01: "General electrical failure", 0x02: "General signal failure",
+        0x11: "Short to ground", 0x12: "Short to battery", 0x13: "Open circuit",
+        0x14: "Short to ground or open", 0x15: "Short to battery or open",
+        0x16: "Voltage below threshold", 0x17: "Voltage above threshold",
+        0x1C: "Voltage out of range", 0x29: "Signal invalid", 0x31: "No signal",
+        0x54: "Missing calibration", 0x55: "Not configured", 0x62: "Signal compare failure",
+        0x64: "Signal plausibility failure", 0x87: "Missing message", 0x88: "Bus off",
+        0x96: "Component internal failure", 0x98: "Over temperature",
+    ]
+}
+
+struct VAGReport: Identifiable {
+    let module: VAGModule
+    var present: Bool
+    var faults: [VAGFault]
+    var partNumber: String?
+    var systemName: String?
+    var id: String { module.id }
+    var faulty: Bool { !faults.isEmpty }
+}
