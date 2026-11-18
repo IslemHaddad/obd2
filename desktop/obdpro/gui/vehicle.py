@@ -137,9 +137,14 @@ class VehiclePage(QWidget):
         sig.step.connect(lambda i, rep: (self.progress.setValue(int(100 * i / len(MODULES))),
                                          self.reports.__setitem__(rep.module.address, rep), self._render()))
 
+        from .. import features as F
+
         def work():
             for i, m in enumerate(MODULES, 1):
-                sig.step.emit(i, vag.report(m))
+                rep = vag.report(m)
+                if rep.present:
+                    F.record_faults(self.s.store, self.s.vin, m.address, [(f.code, f.state) for f in rep.faults])
+                sig.step.emit(i, rep)
 
         def done(_):
             self.progress.hide()
@@ -159,12 +164,16 @@ class VehiclePage(QWidget):
 
         def work():
             errs = []
+            from .. import features as F
             for r in faulty:
                 try:
                     vag.clear(r.module)
+                    F.record_clear(self.s.store, self.s.vin, r.module.address)
                 except ELMError as e:
                     errs.append(str(e))
-                self.reports[r.module.address] = vag.report(r.module)
+                rep = vag.report(r.module)
+                F.record_faults(self.s.store, self.s.vin, r.module.address, [(f.code, f.state) for f in rep.faults])
+                self.reports[r.module.address] = rep
             return errs
 
         def done(errs):
@@ -282,12 +291,21 @@ class FaultsTab(QWidget):
             self.table.setItem(i, 3, QTableWidgetItem(f.detail))
         self.clear.setEnabled(r.faulty)
 
+    def _read(self):
+        from .. import features as F
+        rep = self.s.vag.report(self.m)
+        if rep.present:
+            F.record_faults(self.s.store, self.s.vin, self.m.address, [(f.code, f.state) for f in rep.faults])
+        return rep
+
     def refresh(self):
-        C.run_bg(lambda: self.s.vag.report(self.m), self.render)
+        C.run_bg(self._read, self.render)
 
     def do_clear(self):
+        from .. import features as F
         if C.confirm(self, "Clear", f"Clear faults in {self.m.name} only?", "Clear"):
-            C.run_bg(lambda: (self.s.vag.clear(self.m), self.s.vag.report(self.m))[1], self.render)
+            C.run_bg(lambda: (self.s.vag.clear(self.m), F.record_clear(self.s.store, self.s.vin, self.m.address),
+                              self._read())[2], self.render)
 
 
 # ------------------------------------------------------------------- Live data

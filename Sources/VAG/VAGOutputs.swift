@@ -123,7 +123,7 @@ extension OBDService {
 
     /// Sends a raw UDS request, returns positive payload or throws the NRC.
     func uds(_ cmd: String, positive sid: UInt8, request rsid: UInt8, timeout: Double = 3) async throws -> [UInt8] {
-        let d = try await elm.request(cmd, timeout: timeout)
+        let d = try await elm.requestUDS(cmd, timeout: timeout)
         if let p = positive(d, sid: sid) { return Array(p) }
         throw negative(d, sid: rsid) ?? ELMError.noData
     }

@@ -31,7 +31,9 @@ class ReportPage(QWidget):
         self.run_btn = C.button("Run Full Scan", "primary", self.run)
         self.open_btn = C.button("Open in Browser / Print", slot=self.open_browser)
         self.open_btn.setEnabled(False)
-        lay.addLayout(C.row(C.label("Vehicle Report", "h1"), "stretch", self.open_btn, self.run_btn))
+        self.pdf_btn = C.button("Save PDF", slot=self.save_pdf)
+        self.pdf_btn.setEnabled(False)
+        lay.addLayout(C.row(C.label("Vehicle Report", "h1"), "stretch", self.pdf_btn, self.open_btn, self.run_btn))
         lay.addWidget(C.label("Scans every module: identification, part numbers, software, coding, faults, readiness, "
                               "odometer, live snapshot. Reports are saved and can be printed or shared as PDF.",
                               "muted", True))
@@ -73,6 +75,7 @@ class ReportPage(QWidget):
         self.path = it.data(Qt.UserRole)
         self.view.load(QUrl.fromLocalFile(self.path))
         self.open_btn.setEnabled(True)
+        self.pdf_btn.setEnabled(True)
 
     def run(self):
         if not self.s.connected:
@@ -87,6 +90,11 @@ class ReportPage(QWidget):
             self.s.poll_enabled = was
             self.run_btn.setEnabled(True)
             self.bar.hide()
+            from .. import features as F
+            for m in r["modules"]:
+                if m["present"]:
+                    F.record_faults(self.s.store, r.get("vin"), m["address"], [(c, st) for c, st, _d, _t in m["faults"]],
+                                    "report")
             name = f"report_{datetime.now():%Y-%m-%d_%H%M}_{(r.get('vin') or 'car')[-6:]}"
             html_path = self._dir() / f"{name}.html"
             html_path.write_text(report.to_html(r), encoding="utf-8")
@@ -102,6 +110,14 @@ class ReportPage(QWidget):
             C.error_box(m)
 
         C.run_bg(lambda: report.build(self.s.elm, self.sig.progress.emit), done, fail)
+
+    def save_pdf(self):
+        if not self.path:
+            return
+        out = self.path[:-5] + ".pdf"
+        self.view.page().pdfPrintingFinished.connect(
+            lambda p, ok: self.status.setText(f"PDF saved: {p}" if ok else "PDF export failed"))
+        self.view.page().printToPdf(out)
 
     def open_browser(self):
         if self.path:

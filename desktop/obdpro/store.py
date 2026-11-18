@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import uuid
 from pathlib import Path
 
@@ -27,11 +28,14 @@ class Store:
     def get(self, key, default=None):
         return self.data.get(key, default if default is not None else [])
 
+    _lock = threading.RLock()
+
     def set(self, key, value) -> None:
-        self.data[key] = value
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, indent=1))
-        tmp.replace(self.path)
+        with self._lock:
+            self.data[key] = value
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.data, indent=1, default=str))
+            tmp.replace(self.path)
 
     def items(self, key: str, module: str | None = None) -> list[dict]:
         v = self.get(key)

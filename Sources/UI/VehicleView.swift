@@ -357,7 +357,7 @@ struct ModuleDetail: View {
                                 HStack {
                                     Text(f.code).font(.headline.monospaced())
                                     Spacer()
-                                    Text(f.active ? "Active" : "Stored")
+                                    Text(f.state)
                                         .font(.caption2.bold()).padding(.horizontal, 7).padding(.vertical, 2)
                                         .background((f.active ? r.module.category.color : .gray).opacity(0.25), in: Capsule())
                                 }

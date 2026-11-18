@@ -134,14 +134,22 @@ struct VAGModule: Identifiable, Hashable {
 }
 
 struct VAGFault: Identifiable, Hashable {
+    /// ISO 14229 status bits meaning "real fault": testFailed | thisCycle | pending | confirmed | sinceLastClear.
+    static let faultMask: UInt8 = 0x2F
+
     let dtc: String          // e.g. "B116C"
     let failureType: UInt8   // ISO 15031-6 FTB
     let status: UInt8
+    var raw: UInt32 = 0
+    var powertrain = true
     var id: String { dtc + String(format: "%02X", failureType) }
-    var code: String { String(format: "%@ %02X", dtc, failureType) }
+    var code: String { powertrain ? String(format: "%@ %02X", dtc, failureType) : String(format: "%06X", raw) }
     var active: Bool { status & 0x01 != 0 }
     var confirmed: Bool { status & 0x08 != 0 }
-    var description: String { DTCDatabase.describe(dtc) }
+    var state: String { active ? "Active" : confirmed ? "Stored" : status & 0x04 != 0 ? "Pending" : "Intermittent" }
+    var description: String {
+        powertrain ? DTCDatabase.describe(dtc) : "Module-specific fault (SAE form \(dtc)-\(String(format: "%02X", failureType)))"
+    }
     var detail: String { VAGFault.ftb[failureType] ?? String(format: "Fault type %02X", failureType) }
 
     static let ftb: [UInt8: String] = [

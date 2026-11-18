@@ -79,14 +79,23 @@ actor ELM327 {
 
     /// Fast init: no echo/spaces/headers/linefeeds, adaptive timing, auto protocol.
     func initialize() async throws {
-        _ = try? await send("ATZ", timeout: 3)          // reset (some clones ignore)
-        for c in ["ATE0", "ATL0", "ATS0", "ATH0", "ATAT2", "ATSP0"] {
+        _ = try? await send("ATZ", timeout: 5)          // reset; slow on BLE clones
+        try? await Task.sleep(nanoseconds: 600_000_000)  // let late reset output arrive, then discard it
+        buffer.removeAll()
+        // Re-align command/response: send ATE0 until a clean OK comes back.
+        var synced = false
+        for _ in 0..<4 where !synced {
+            if let l = try? await send("ATE0", timeout: 2), l.contains(where: { $0.contains("OK") }) { synced = true }
+            else { try? await Task.sleep(nanoseconds: 400_000_000); buffer.removeAll() }
+        }
+        guard synced else { throw ELMError.error("Adapter is not answering (powered? used by another app?)") }
+        for c in ["ATL0", "ATS0", "ATH0", "ATAT2", "ATSP0"] {
             _ = try await send(c, timeout: 2)
         }
         version = (try? await send("ATI").first) ?? ""
         _ = try await send("0100", timeout: 10)          // triggers protocol search
         if let dp = try? await send("ATDPN").first {
-            let digits = dp.replacingOccurrences(of: "A", with: "")
+            let digits = String(dp.uppercased().drop(while: { $0 == "A" }))
             protocolNumber = Int(digits, radix: 16) ?? 0
         }
         isCAN = (6...9).contains(protocolNumber) || protocolNumber >= 0xA
@@ -96,6 +105,26 @@ actor ELM327 {
     func request(_ hex: String, timeout: Double = 2.0) async throws -> [UInt8] {
         let lines = try await send(hex, timeout: timeout)
         return Self.merge(lines: lines, isCAN: isCAN)
+    }
+
+    /// UDS request that survives "7F xx 78" (response pending): cheap clones stop listening after printing it,
+    /// so retry with the adapter's maximum receive timeout (ATST FF).
+    func requestUDS(_ hex: String, timeout: Double = 2.0, pendingWait: Double = 5.0) async throws -> [UInt8] {
+        var d = try await request(hex, timeout: timeout)
+        guard Self.onlyPending(d) else { return d }
+        _ = try? await send("ATSTFF", timeout: 1)
+        let end = Date().addingTimeInterval(pendingWait)
+        while Self.onlyPending(d), Date() < end {
+            d = (try? await request(hex, timeout: timeout + 2)) ?? []
+        }
+        _ = try? await send("ATST32", timeout: 1)
+        _ = try? await send("ATAT2", timeout: 1)
+        return d
+    }
+
+    static func onlyPending(_ d: [UInt8]) -> Bool {
+        guard d.count >= 3, d.count % 3 == 0 else { return false }
+        return stride(from: 0, to: d.count, by: 3).allSatisfy { d[$0] == 0x7F && d[$0 + 2] == 0x78 }
     }
 
     /// Per-line byte arrays (one per ECU frame), useful for non-CAN DTC parsing.

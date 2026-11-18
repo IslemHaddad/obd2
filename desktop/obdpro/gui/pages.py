@@ -37,7 +37,17 @@ class ConnectPage(QWidget):
         self.detail = C.label("", "muted", wrap=True)
         self.disc = C.button("Disconnect", "danger", s.disconnect)
         self.disc.hide()
-        lay.addWidget(C.card(C.row(self.status, "stretch", self.disc), self.detail))
+        self.last_btn = C.button("⚡ Connect to Last Adapter", "primary", s.connect_last)
+        from .. import features as F
+        self.auto = QCheckBox("Connect automatically when the app starts")
+        self.auto.setChecked(bool(F.setting(s.store, "autoconnect")))
+        self.auto.toggled.connect(lambda v: F.set_setting(s.store, "autoconnect", v))
+        self.recon = QCheckBox("Reconnect automatically if the link drops")
+        self.recon.setChecked(bool(F.setting(s.store, "auto_reconnect")))
+        self.recon.toggled.connect(lambda v: F.set_setting(s.store, "auto_reconnect", v))
+        lay.addWidget(C.card(C.row(self.status, "stretch", self.disc, self.last_btn), self.detail,
+                             C.row(self.auto, self.recon, "stretch")))
+        self._update_last()
 
         # USB / serial / Bluetooth classic
         self.ports = QComboBox()
@@ -77,6 +87,14 @@ class ConnectPage(QWidget):
         lay.addStretch(1)
         s.state_changed.connect(self.on_state)
         self.refresh_ports()
+
+    def _update_last(self):
+        lc = self.s.last_connection
+        if lc:
+            kind, arg = lc
+            name = {"ble": "Bluetooth LE", "serial": "Serial", "tcp": "Wi-Fi", "sim": "Demo"}.get(kind, kind)
+            self.last_btn.setText(f"⚡ Reconnect · {name} {arg if kind != 'serial' else arg[0]}")
+        self.last_btn.setVisible(bool(lc) and self.s.state not in ("connected", "connecting", "reconnecting"))
 
     def refresh_ports(self):
         self.ports.clear()
@@ -132,13 +150,14 @@ class ConnectPage(QWidget):
         self.s.connect("tcp", (self.host.text().strip(), self.port.value()))
 
     def on_state(self, state, detail):
-        colors = {"connected": C.GREEN, "failed": C.RED, "connecting": C.YELLOW}
+        colors = {"connected": C.GREEN, "failed": C.RED, "connecting": C.YELLOW, "reconnecting": C.YELLOW}
         text = {"idle": "Not connected", "connecting": "Connecting…", "connected": "Connected",
-                "failed": "Connection failed"}[state]
+                "failed": "Connection failed", "reconnecting": "Reconnecting…"}[state]
         self.status.setText(text)
         self.status.setStyleSheet(f"color: {colors.get(state, C.MUTED)}")
         self.detail.setText(detail)
-        self.disc.setVisible(state in ("connected", "connecting"))
+        self.disc.setVisible(state in ("connected", "connecting", "reconnecting"))
+        self._update_last()
 
 
 # =================================================================== Live
@@ -146,22 +165,36 @@ STYLES = ["ring", "arc", "bar", "number", "graph"]
 
 
 class TileDialog(QDialog):
-    def __init__(self, parent, supported: set[int], tile: dict | None = None):
+    def __init__(self, parent, supported: set[int], tile: dict | None = None, store=None):
         super().__init__(parent)
+        from .. import features as F
         self.setWindowTitle("Gauge")
         f = QFormLayout(self)
         self.pid = QComboBox()
+        self.pid.setMinimumWidth(320)
         for p in pids.ALL:
             if not supported or p.id in supported:
-                self.pid.addItem(f"{p.name}  (01{p.id:02X})", p.id)
+                self.pid.addItem(f"{p.name}  (01{p.id:02X})", ("pid", p.id))
+        vag_defs = list(F.VAG_PRESETS)
+        if store is not None:
+            for m in store.get("measurements") or []:
+                if m.get("kind", "number") == "number" and all((m["module"], m["did"]) != (d["module"], d["did"])
+                                                                 for d in vag_defs):
+                    vag_defs.append(dict(m, min=m.get("min", 0), max=m.get("max", 255)))
+        for d in vag_defs:
+            self.pid.addItem(f"SEAT · {d['name']}  ({d['module']}/{int(d['did']):04X})", ("vag", d))
         self.style = QComboBox()
         self.style.addItems([s.capitalize() for s in STYLES])
         self.warn_on = QCheckBox("Warn above")
         self.warn = QDoubleSpinBox()
         self.warn.setRange(-1e6, 1e6)
         if tile:
-            i = self.pid.findData(tile["pid"])
-            self.pid.setCurrentIndex(max(0, i))
+            for i in range(self.pid.count()):
+                kind, val = self.pid.itemData(i)
+                if (kind == "pid" and tile.get("pid") == val) or (kind == "vag" and tile.get("vag") and
+                                                                   (val["module"], val["did"]) ==
+                                                                   (tile["vag"]["module"], tile["vag"]["did"])):
+                    self.pid.setCurrentIndex(i)
             self.style.setCurrentIndex(STYLES.index(tile.get("style", "ring")))
             if tile.get("warn") is not None:
                 self.warn_on.setChecked(True)
@@ -175,8 +208,11 @@ class TileDialog(QDialog):
         f.addRow(bb)
 
     def result_tile(self) -> dict:
-        return {"pid": self.pid.currentData(), "style": STYLES[self.style.currentIndex()],
-                "warn": self.warn.value() if self.warn_on.isChecked() else None}
+        kind, val = self.pid.currentData()
+        t = {"style": STYLES[self.style.currentIndex()],
+             "warn": self.warn.value() if self.warn_on.isChecked() else None}
+        t["pid" if kind == "pid" else "vag"] = val
+        return t
 
 
 class LivePage(QWidget):
@@ -213,8 +249,10 @@ class LivePage(QWidget):
             t.setParent(None)
             t.deleteLater()
         self.tiles = []
+        from .. import features as F
         for cfg in self.s.tiles:
-            p = pids.BY_ID.get(cfg["pid"])
+            p = pids.BY_ID.get(cfg["pid"]) if cfg.get("pid") is not None else (
+                F.vpid_from(cfg["vag"]) if cfg.get("vag") else None)
             if not p:
                 continue
             t = GaugeTile(p, cfg.get("style", "ring"), cfg.get("warn"))
@@ -238,7 +276,7 @@ class LivePage(QWidget):
 
     def on_values(self, vals: dict):
         for t in self.tiles:
-            if t.pid.id in vals and isinstance(vals[t.pid.id], float):
+            if t.pid.id in vals and isinstance(vals[t.pid.id], (int, float)):
                 t.set_value(vals[t.pid.id])
 
     def menu(self, tile, cfg, pos):
@@ -256,6 +294,10 @@ class LivePage(QWidget):
         m.exec(tile.mapToGlobal(pos))
 
     def _update(self, cfg, **kw):
+        if "pid" in kw:
+            cfg.pop("vag", None)
+        if "vag" in kw:
+            cfg.pop("pid", None)
         cfg.update(kw)
         self.s.save_tiles()
         self.rebuild()
@@ -273,12 +315,12 @@ class LivePage(QWidget):
         self.rebuild()
 
     def edit(self, cfg):
-        d = TileDialog(self, self.s.supported, cfg)
+        d = TileDialog(self, self.s.supported, cfg, self.s.store)
         if d.exec():
             self._update(cfg, **d.result_tile())
 
     def add_tile(self):
-        d = TileDialog(self, self.s.supported)
+        d = TileDialog(self, self.s.supported, None, self.s.store)
         if d.exec():
             self.s.tiles.append(d.result_tile())
             self.s.save_tiles()
@@ -364,8 +406,12 @@ class DiagnosePage(QWidget):
         def work():
             from ..obd import ModuleReport
             with self.s.elm.lock:
+                from .. import features as F
                 ecus = o.discover_ecus()
                 reps = [ModuleReport(e, o.dtcs_for(e)) for e in ecus]
+                for rp in reps:
+                    F.record_faults(self.s.store, self.s.vin, "OBD:" + rp.ecu.name,
+                                    [(d.code, d.kind) for d in rp.dtcs])
                 return reps, o.readiness(), o.freeze_frame(self.s.supported)
 
         def done(r):
@@ -413,9 +459,11 @@ class DiagnosePage(QWidget):
         o = self.s.obd
 
         def work():
+            from .. import features as F
             with self.s.elm.lock:
                 for r in reps:
                     o.clear_for(r.ecu)
+                    F.record_clear(self.s.store, self.s.vin, "OBD:" + r.ecu.name)
         C.run_bg(work, lambda _: self.scan(), lambda m: (self._busy(False), C.error_box(m)))
 
     def clear_selected(self):

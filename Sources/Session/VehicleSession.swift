@@ -46,7 +46,18 @@ final class VehicleSession {
     var vagFaulty: [VAGReport] { vagReports.filter(\.faulty) }
 
     // VAG live data & coding
-    var measurements: [Measurement] = Measurement.load() { didSet { Measurement.save(measurements) } }
+    var measurements: [Measurement] = VehicleSession.seededMeasurements() { didSet { Measurement.save(measurements) } }
+
+    /// Oil temperature found on the SEAT KJ 1.6 MPI engine (DID 11BD, 0.1 K) — seeded once.
+    private static func seededMeasurements() -> [Measurement] {
+        var m = Measurement.load()
+        if !m.contains(where: { $0.module == "01" && $0.did == 0x11BD }) {
+            m.append(Measurement(module: "01", did: 0x11BD, name: "Oil Temp", kind: .number, offset: 0, length: 2,
+                                 signed: false, scale: 0.1, add: -273.15, unit: "°C"))
+            Measurement.save(m)
+        }
+        return m
+    }
     var vagLive: [UUID: String] = [:]
     var vagLiveNumeric: [UUID: [Double]] = [:]
     var vagLiveModule: VAGModule?

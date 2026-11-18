@@ -138,7 +138,7 @@ extension OBDService {
 
     /// 22 DID → payload (after 62 DIDhi DIDlo). Channel must already be open.
     func readDID(_ did: UInt16, timeout: Double = 1) async throws -> [UInt8] {
-        let d = try await elm.request(String(format: "22%04X", did), timeout: timeout)
+        let d = try await elm.requestUDS(String(format: "22%04X", did), timeout: timeout, pendingWait: 3)
         if let p = positive(d, sid: 0x62, sub: UInt8(did >> 8)), p.count >= 3, p[p.startIndex + 2] == UInt8(did & 0xFF) {
             return Array(p.dropFirst(3))
         }
@@ -146,13 +146,13 @@ extension OBDService {
     }
 
     func session(_ type: UInt8) async throws {
-        let d = try await elm.request(String(format: "10%02X", type), timeout: 1.5)
+        let d = try await elm.requestUDS(String(format: "10%02X", type), timeout: 1.5)
         if positive(d, sid: 0x50, sub: type) == nil { throw negative(d, sid: 0x10) ?? ELMError.noData }
     }
 
     func writeDID(_ did: UInt16, _ data: [UInt8]) async throws {
         let cmd = String(format: "2E%04X", did) + data.map { String(format: "%02X", $0) }.joined()
-        let d = try await elm.request(cmd, timeout: 5)
+        let d = try await elm.requestUDS(cmd, timeout: 5)
         if positive(d, sid: 0x6E, sub: UInt8(did >> 8)) == nil { throw negative(d, sid: 0x2E) ?? ELMError.noData }
     }
 
