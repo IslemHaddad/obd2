@@ -263,61 +263,28 @@ struct CarTopView: View {
     init(color: Color, body: BodyType) { self.color = color; self.body_ = body }
 
     var body: some View {
-        GeometryReader { g in
-            let w = g.size.width, h = g.size.height
-            let roofStart: CGFloat = body_ == .van ? 0.27 : 0.36
-            let roofEnd: CGFloat = { switch body_ { case .sedan, .coupe: 0.72; case .hatch: 0.84; default: 0.88 } }()
-            ZStack {
-                // wheels
-                ForEach([0.2, 0.8], id: \.self) { y in
-                    ForEach([-1.0, 1.0], id: \.self) { side in
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.black.opacity(0.85))
-                            .frame(width: w * 0.13, height: h * 0.13)
-                            .position(x: w / 2 + side * w * 0.47, y: h * y)
-                    }
-                }
-                // body
-                RoundedRectangle(cornerRadius: w * 0.32, style: .continuous)
-                    .fill(LinearGradient(colors: [color.opacity(0.95), color.opacity(0.65)], startPoint: .leading, endPoint: .trailing))
-                    .overlay(RoundedRectangle(cornerRadius: w * 0.32, style: .continuous).strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                    .shadow(color: color.opacity(0.5), radius: 18)
-                    .frame(width: w * 0.9, height: h)
-                // mirrors
-                ForEach([-1.0, 1.0], id: \.self) { side in
-                    Capsule().fill(color.opacity(0.9)).frame(width: w * 0.12, height: h * 0.025)
-                        .position(x: w / 2 + side * w * 0.47, y: h * (roofStart - 0.02))
-                }
-                // windshield
-                Trapezoid(topInset: 0.14).fill(Color.black.opacity(0.7))
-                    .frame(width: w * 0.74, height: h * 0.1)
-                    .position(x: w / 2, y: h * (roofStart - 0.05))
-                // roof
-                RoundedRectangle(cornerRadius: w * 0.1, style: .continuous)
-                    .fill(Color.black.opacity(0.25))
-                    .overlay(RoundedRectangle(cornerRadius: w * 0.1).strokeBorder(.white.opacity(0.1)))
-                    .frame(width: w * 0.66, height: h * (roofEnd - roofStart))
-                    .position(x: w / 2, y: h * (roofStart + roofEnd) / 2)
-                // rear window
-                Trapezoid(topInset: -0.12).fill(Color.black.opacity(0.65))
-                    .frame(width: w * 0.66, height: h * 0.06)
-                    .position(x: w / 2, y: h * (roofEnd + 0.03))
-                // headlights / taillights
-                ForEach([-1.0, 1.0], id: \.self) { side in
-                    Capsule().fill(.white.opacity(0.9)).frame(width: w * 0.2, height: h * 0.012)
-                        .shadow(color: .white, radius: 4)
-                        .position(x: w / 2 + side * w * 0.26, y: h * 0.025)
-                    Capsule().fill(.red).frame(width: w * 0.2, height: h * 0.012)
-                        .shadow(color: .red, radius: 4)
-                        .position(x: w / 2 + side * w * 0.26, y: h * 0.975)
-                }
-                // hood crease
-                Path { p in
-                    p.move(to: CGPoint(x: w * 0.35, y: h * 0.05)); p.addLine(to: CGPoint(x: w * 0.38, y: h * (roofStart - 0.11)))
-                    p.move(to: CGPoint(x: w * 0.65, y: h * 0.05)); p.addLine(to: CGPoint(x: w * 0.62, y: h * (roofStart - 0.11)))
-                }
-                .stroke(.white.opacity(0.18), lineWidth: 1)
+        Canvas { ctx, size in
+            let r = CGRect(origin: .zero, size: size)
+            let sx = size.width / CarArtPaths.topSize.width, sy = size.height / CarArtPaths.topSize.height
+            for w in CarArtPaths.topWheels {
+                ctx.fill(Path(roundedRect: CGRect(x: w[0] * sx, y: w[1] * sy, width: w[2] * sx, height: w[3] * sy), cornerRadius: 6),
+                         with: .color(Color(white: 0.05)))
             }
+            ctx.fill(CarArtPaths.topBody(r), with: .linearGradient(Gradient(colors: [color.opacity(0.7), color, color.opacity(0.7)]),
+                                                                   startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0)))
+            ctx.stroke(CarArtPaths.topBody(r), with: .color(.white.opacity(0.18)), lineWidth: 1)
+            ctx.fill(CarArtPaths.topMirrorL(r), with: .color(color.opacity(0.8)))
+            ctx.fill(CarArtPaths.topMirrorR(r), with: .color(color.opacity(0.8)))
+            ctx.fill(CarArtPaths.topWindscreen(r), with: .color(Color(white: 0.07)))
+            ctx.fill(CarArtPaths.topRearGlass(r), with: .color(Color(white: 0.07)))
+            ctx.fill(CarArtPaths.topRoof(r), with: .color(Color(white: 0.1)))
+            ctx.fill(CarArtPaths.topPanorama(r), with: .linearGradient(Gradient(colors: [Color(white: 0.35), Color(white: 0.12)]),
+                                                                       startPoint: CGPoint(x: 0, y: 400 * sy), endPoint: CGPoint(x: 0, y: 560 * sy)))
+            ctx.fill(CarArtPaths.topHeadlightL(r), with: .color(.white))
+            ctx.fill(CarArtPaths.topHeadlightR(r), with: .color(.white))
+            ctx.fill(CarArtPaths.topTaillight(r), with: .color(.red))
+            ctx.stroke(CarArtPaths.topBonnetL(r), with: .color(.white.opacity(0.25)), lineWidth: 1.5)
+            ctx.stroke(CarArtPaths.topBonnetR(r), with: .color(.white.opacity(0.25)), lineWidth: 1.5)
         }
     }
 }
