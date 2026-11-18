@@ -12,6 +12,7 @@ from .gui.pages import ConnectPage, DiagnosePage, LivePage, LogsPage
 from .gui.session import Session
 from .gui.vehicle import VehiclePage
 from .gui.power import PowerPage
+from .gui.reportpage import ReportPage
 from .store import Store
 
 
@@ -37,7 +38,7 @@ class Main(QMainWindow):
         sl.addWidget(brand)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        for t in ("⚡  Connect", "◔  Live Data", "⚠  Diagnose", "🚗  Vehicle", "🏁  Power Run", "▤  Logs"):
+        for t in ("⚡  Connect", "◔  Live Data", "⚠  Diagnose", "🚗  Vehicle", "📋  Report", "🏁  Power Run", "▤  Logs"):
             self.nav.addItem(t)
         sl.addWidget(self.nav, 1)
         self.conn = QLabel("  ● Offline")
@@ -46,7 +47,7 @@ class Main(QMainWindow):
         h.addWidget(side)
         self.stack = QStackedWidget()
         self.pages = [ConnectPage(self.s), LivePage(self.s), DiagnosePage(self.s), VehiclePage(self.s),
-                      PowerPage(self.s), LogsPage(self.s)]
+                      ReportPage(self.s), PowerPage(self.s), LogsPage(self.s)]
         for p in self.pages:
             self.stack.addWidget(p)
         h.addWidget(self.stack, 1)
@@ -57,7 +58,7 @@ class Main(QMainWindow):
 
     def _page(self, i):
         self.stack.setCurrentIndex(i)
-        self.s.poll_enabled = i in (0, 1, 4)        # only poll live PIDs when visible → bus free for diagnostics
+        self.s.poll_enabled = i in (0, 1, 5)        # only poll live PIDs when visible → bus free for diagnostics
 
     def _state(self, st, _d):
         col = {"connected": C.GREEN, "connecting": C.YELLOW, "failed": C.RED}.get(st, C.MUTED)
