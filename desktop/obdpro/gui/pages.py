@@ -5,12 +5,12 @@ import os
 import subprocess
 import sys
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGridLayout,
                                QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QMenu, QScrollArea, QSpinBox,
                                QSplitter, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QWidget,
-                               QCheckBox)
+                               QCheckBox, QPlainTextEdit, QTabWidget, QApplication)
 
 from .. import pids
 from ..transport import list_serial_ports, scan_ble
@@ -98,11 +98,17 @@ class ConnectPage(QWidget):
             self.ble_btn.setEnabled(True)
             self.ble_btn.setText("Scan")
             for addr, name, rssi in res:
-                it = QListWidgetItem(f"{name}    {addr}    {rssi} dBm")
+                it = QListWidgetItem(f"{name}    {addr}" + (f"    {rssi} dBm" if rssi > -100 else ""))
                 it.setData(Qt.UserRole, addr)
                 self.ble.addItem(it)
             if not res:
                 self.ble.addItem("No BLE devices found")
+            else:
+                self.ble.setCurrentRow(0)
+            st = self.s.store.get("settings", {}) or {}
+            for i in range(self.ble.count()):
+                if self.ble.item(i).data(Qt.UserRole) == st.get("ble"):
+                    self.ble.setCurrentRow(i)
 
         def fail(m):
             self.ble_btn.setEnabled(True)
@@ -114,6 +120,9 @@ class ConnectPage(QWidget):
     def connect_ble(self):
         it = self.ble.currentItem()
         if it and it.data(Qt.UserRole):
+            st = self.s.store.get("settings", {}) or {}
+            st["ble"] = it.data(Qt.UserRole)
+            self.s.store.set("settings", st)
             self.s.connect("ble", it.data(Qt.UserRole))
 
     def connect_tcp(self):
@@ -421,6 +430,10 @@ class DiagnosePage(QWidget):
 
 
 # =================================================================== Logs
+class _LogSig(QObject):
+    line = Signal(str)
+
+
 class LogsPage(QWidget):
     def __init__(self, s):
         super().__init__()
@@ -429,13 +442,59 @@ class LogsPage(QWidget):
         from PySide6.QtWidgets import QVBoxLayout
         QVBoxLayout(self).addWidget(w)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        lay.addLayout(C.row(C.label("Logs", "h1"), "stretch", C.button("Refresh", slot=self.refresh),
-                            C.button("Open Folder", "primary", self.open_folder)))
-        lay.addWidget(C.label(f"CSV recordings are saved in {s.store.logs_dir()}", "muted"))
+        from ..elm import TRAFFIC
+        self.traffic = TRAFFIC
+        lay.addLayout(C.row(C.label("Logs", "h1"), "stretch",
+                            C.button("Copy Adapter Log", slot=self.copy_log),
+                            C.button("Open Log File", slot=lambda: self._open(str(TRAFFIC.path))),
+                            C.button("Open Recordings Folder", "primary",
+                                     slot=lambda: self._open(str(self.s.store.logs_dir())))))
+        tabs = QTabWidget()
+        # adapter traffic
+        self.console = QPlainTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setMaximumBlockCount(3000)
+        self.console.setStyleSheet("font-family: 'JetBrains Mono', 'DejaVu Sans Mono', monospace; font-size: 12px;")
+        self.console.setPlainText("\n".join(TRAFFIC.tail))
+        self.filter = QLineEdit()
+        self.filter.setPlaceholderText("Filter (e.g. 1902, 14FF, ERROR, TIMEOUT)…")
+        self.filter.textChanged.connect(self._refilter)
+        cw = QWidget()
+        cl = QVBoxLayout(cw)
+        cl.setContentsMargins(0, 8, 0, 0)
+        cl.addWidget(C.label(f"Every command sent to the adapter and its raw reply · saved to {TRAFFIC.path}", "muted"))
+        cl.addWidget(self.filter)
+        cl.addWidget(self.console, 1)
+        tabs.addTab(cw, "Adapter log")
+        # CSV recordings
         self.list = QListWidget()
         self.list.itemDoubleClicked.connect(lambda it: QDesktopServices.openUrl(QUrl.fromLocalFile(it.data(Qt.UserRole))))
-        lay.addWidget(self.list, 1)
+        rw = QWidget()
+        rl = QVBoxLayout(rw)
+        rl.setContentsMargins(0, 8, 0, 0)
+        rl.addWidget(C.label(f"Live-data CSV recordings in {s.store.logs_dir()} · double-click to open", "muted"))
+        rl.addWidget(self.list, 1)
+        tabs.addTab(rw, "Recordings")
+        lay.addWidget(tabs, 1)
+        self.sig = _LogSig()
+        self.sig.line.connect(self._append)
+        TRAFFIC.listeners.append(self.sig.line.emit)
         self.refresh()
+
+    def _match(self, line):
+        f = self.filter.text().strip().upper()
+        return not f or f in line.upper()
+
+    def _append(self, line):
+        if self._match(line):
+            self.console.appendPlainText(line)
+
+    def _refilter(self):
+        self.console.setPlainText("\n".join(l for l in self.traffic.tail if self._match(l)))
+        self.console.moveCursor(self.console.textCursor().End)
+
+    def copy_log(self):
+        QApplication.clipboard().setText("\n".join(self.traffic.tail[-400:]))
 
     def refresh(self):
         self.list.clear()
@@ -444,12 +503,11 @@ class LogsPage(QWidget):
             it.setData(Qt.UserRole, str(f))
             self.list.addItem(it)
 
-    def open_folder(self):
-        d = str(self.s.store.logs_dir())
+    def _open(self, path):
         if sys.platform.startswith("win"):
-            os.startfile(d)  # noqa: S606
+            os.startfile(path)  # noqa: S606
         else:
-            subprocess.Popen(["xdg-open" if sys.platform.startswith("linux") else "open", d])
+            subprocess.Popen(["xdg-open" if sys.platform.startswith("linux") else "open", path])
 
     def showEvent(self, e):
         self.refresh()

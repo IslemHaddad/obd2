@@ -58,23 +58,43 @@ MODULES = [Module(*m) for m in catalog.MODULES]
 MODULE_BY_ADDR = {m.address: m for m in MODULES}
 
 
+# ISO 14229 DTC status bits that mean "this is a real fault" (not just "test not run yet").
+FAULT_MASK = 0x2F   # testFailed | testFailedThisCycle | pending | confirmed | testFailedSinceLastClear
+
+
 @dataclass
 class Fault:
     dtc: str
     ftb: int
     status: int
+    raw: int = 0               # 3-byte UDS DTC as integer
+    powertrain: bool = True    # SAE P-code meaning applies (engine / gearbox)
 
     @property
     def code(self) -> str:
-        return f"{self.dtc} {self.ftb:02X}"
+        if self.powertrain:
+            return f"{self.dtc} {self.ftb:02X}"
+        return f"{self.raw:06X}"
 
     @property
     def active(self) -> bool:
         return bool(self.status & 0x01)
 
     @property
+    def state(self) -> str:
+        if self.status & 0x01:
+            return "Active"
+        if self.status & 0x08:
+            return "Stored"
+        if self.status & 0x04:
+            return "Pending"
+        return "Intermittent"
+
+    @property
     def description(self) -> str:
-        return dtc_db.describe(self.dtc)
+        if self.powertrain:
+            return dtc_db.describe(self.dtc)
+        return f"Module-specific fault (SAE form {self.dtc}-{self.ftb:02X})"
 
     @property
     def detail(self) -> str:
@@ -146,26 +166,26 @@ class VAG:
 
     # ---------- primitives ----------
     def uds(self, cmd: str, pos_sid: int, req_sid: int, timeout: float = 3.0) -> list[int]:
-        d = self.elm.request(cmd, timeout)
+        d = self.elm.request_uds(cmd, timeout)
         p = _positive(d, pos_sid)
         if p is not None:
             return p
         raise _negative(d, req_sid) or NoData()
 
     def read_did(self, did: int, timeout: float = 1.0) -> list[int]:
-        d = self.elm.request(f"22{did:04X}", timeout)
+        d = self.elm.request_uds(f"22{did:04X}", timeout, pending_wait=3)
         p = _positive(d, 0x62, did >> 8)
         if p is not None and len(p) >= 3 and p[2] == did & 0xFF:
             return p[3:]
         raise _negative(d, 0x22) or NoData()
 
     def write_did(self, did: int, data: list[int]) -> None:
-        d = self.elm.request(f"2E{did:04X}{to_hex(data)}", 5)
+        d = self.elm.request_uds(f"2E{did:04X}{to_hex(data)}", 5)
         if _positive(d, 0x6E, did >> 8) is None:
             raise _negative(d, 0x2E) or NoData()
 
     def session(self, t: int) -> None:
-        d = self.elm.request(f"10{t:02X}", 1.5)
+        d = self.elm.request_uds(f"10{t:02X}", 1.5)
         if _positive(d, 0x50, t) is None:
             raise _negative(d, 0x10) or NoData()
 
@@ -186,19 +206,29 @@ class VAG:
     # ---------- faults ----------
     def report(self, m: Module) -> Report:
         with self.channel(m):
+            # Ask only for real faults: listing every supported DTC (mask FF) can be hundreds of
+            # records, which cheap ELM327 clones truncate.
             try:
-                d = self.elm.request("1902FF", 1.2)
+                d = self.elm.request_uds(f"1902{FAULT_MASK:02X}", 2)
+            except NoData:
+                return Report(m, False)
             except ELMError:
                 return Report(m, False)
             r = _positive(d, 0x59, 0x02)
             if r is None:
-                return Report(m, False)
+                neg = _negative(d, 0x19)
+                if neg is None:
+                    return Report(m, False)
+                d = self.elm.request_uds("1902FF", 2)        # module rejects the mask → fall back
+                r = _positive(d, 0x59, 0x02)
+                if r is None:
+                    return Report(m, False)
             rec = r[3:]
             faults: list[Fault] = []
             for j in range(0, len(rec) - 3, 4):
                 a, b, c, st = rec[j:j + 4]
-                if (a | b | c) and st:
-                    f = Fault(dtc_db.decode(a, b), c, st)
+                if (a | b | c) and st & FAULT_MASK:
+                    f = Fault(dtc_db.decode(a, b), c, st, a << 16 | b << 8 | c, m.category == "powertrain")
                     if all(f.code != x.code for x in faults):
                         faults.append(f)
             return Report(m, True, faults, self._ascii(0xF187), self._ascii(0xF197))
@@ -221,7 +251,7 @@ class VAG:
 
     def _try_clear(self) -> bool:
         try:
-            d = self.elm.request("14FFFFFF", 3)
+            d = self.elm.request_uds("14FFFFFF", 3, pending_wait=8)
             return _positive(d, 0x54) is not None
         except ELMError:
             return False

@@ -170,8 +170,19 @@ class VehiclePage(QWidget):
         def done(errs):
             self._render()
             self._buttons()
-            if errs:
-                C.error_box("\n".join(errs))
+            still = [r for r in self.reports.values() if r.faulty]
+            msg = list(errs)
+            for r in still:
+                act = [f.code for f in r.faults if f.active]
+                if act:
+                    msg.append(f"{r.module.name}: {', '.join(act)} is still ACTIVE — the module re-detects it "
+                               f"immediately, so the cause is still present (wiring, part, bulb, voltage…). "
+                               f"Fix the cause, then clear again.")
+                else:
+                    msg.append(f"{r.module.name}: codes came back after clearing — the condition is still "
+                               f"present or returns on the next self-test.")
+            if msg:
+                C.error_box("\n\n".join(msg))
 
         C.run_bg(work, done)
 
@@ -264,7 +275,7 @@ class FaultsTab(QWidget):
         self.table.setRowCount(len(r.faults))
         for i, f in enumerate(r.faults):
             self.table.setItem(i, 0, QTableWidgetItem(f.code))
-            st = QTableWidgetItem("Active" if f.active else "Stored")
+            st = QTableWidgetItem(f.state)
             st.setForeground(QColor(self.m.color if f.active else C.MUTED))
             self.table.setItem(i, 1, st)
             self.table.setItem(i, 2, QTableWidgetItem(f.description))

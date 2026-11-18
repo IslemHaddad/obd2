@@ -129,9 +129,12 @@ class SimTransport(Transport):
                 self.obd_dtcs[h] = []
                 return "44"
             return f"{int(sid, 16) + 0x40:02X}{len(codes):02X}" + "".join(codes)
-        if c == "1902FF":
-            recs = "".join(f"{a:02X}{b:02X}{f:02X}{s:02X}" for a, b, f, s in self.vag_faults.get(h, []))
-            return "5902FF" + recs
+        if c.startswith("1902"):
+            mask = int(c[4:6], 16)
+            noise = [(0x90, 0x4D, 0x00, 0x10), (0xEA, 0x61, 0x00, 0x10)]     # supported, not tested since clear
+            recs = "".join(f"{a:02X}{b:02X}{f:02X}{s:02X}" for a, b, f, s in self.vag_faults.get(h, []) + noise
+                           if s & mask)
+            return "59021" + "9" + recs
         if c.startswith("10"):
             self.session = int(c[2:4], 16)
             return "50" + c[2:4] + "003201F4"

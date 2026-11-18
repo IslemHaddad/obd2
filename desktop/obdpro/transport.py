@@ -96,6 +96,7 @@ class BLETransport(Transport):
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
+        _release_stale_link(address)
         self.client = BleakClient(address)
         self._run(self._connect(), 20)
 
@@ -157,6 +158,44 @@ class BLETransport(Transport):
         self._loop.call_soon_threadsafe(self._loop.stop)
 
 
+def _bluez_devices() -> list[tuple[str, str, bool]]:
+    """Known BlueZ devices (address, name, connected). Linux only; empty elsewhere."""
+    import shutil
+    import subprocess
+    if not shutil.which("bluetoothctl"):
+        return []
+    try:
+        out = subprocess.run(["bluetoothctl", "devices"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return []
+    res = []
+    for line in out.splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) == 3 and parts[0] == "Device":
+            try:
+                info = subprocess.run(["bluetoothctl", "info", parts[1]], capture_output=True, text=True,
+                                      timeout=5).stdout
+            except Exception:
+                info = ""
+            res.append((parts[1], parts[2], "Connected: yes" in info))
+    return res
+
+
+def _release_stale_link(address: str) -> None:
+    """If BlueZ holds a link to the adapter (left over from a crash or Settings), drop it so we can connect."""
+    import shutil
+    import subprocess
+    if not shutil.which("bluetoothctl"):
+        return
+    try:
+        info = subprocess.run(["bluetoothctl", "info", address], capture_output=True, text=True, timeout=5).stdout
+        if "Connected: yes" in info:
+            subprocess.run(["bluetoothctl", "disconnect", address], capture_output=True, timeout=8)
+            time.sleep(1.5)
+    except Exception:
+        pass
+
+
 def list_serial_ports() -> list[tuple[str, str]]:
     from serial.tools import list_ports
     out = [(p.device, f"{p.device} — {p.description}") for p in list_ports.comports()
@@ -175,7 +214,15 @@ def scan_ble(seconds: float = 5.0) -> list[tuple[str, str, int]]:
         found = await BleakScanner.discover(timeout=seconds, return_adv=True)
         return [(d.address, d.name or adv.local_name or "", adv.rssi) for d, adv in found.values()]
 
-    res = [r for r in asyncio.run(go()) if r[1]]
-    likely = ("OBD", "ELM", "KONNWEI", "KW", "VLINK", "V-LINK", "OBDII")
+    likely = ("OBD", "ELM", "KONNWEI", "KW", "VLINK", "V-LINK", "OBDII", "MAXOBD")
+    try:
+        res = [r for r in asyncio.run(go()) if r[1]]
+    except Exception:
+        res = []
+    seen = {r[0] for r in res}
+    # adapters already linked to this PC don't advertise: list them from BlueZ too
+    for addr, name, connected in _bluez_devices():
+        if addr not in seen and any(k in name.upper() for k in likely):
+            res.append((addr, name + (" (linked)" if connected else " (known)"), -100))
     res.sort(key=lambda r: (not any(k in r[1].upper() for k in likely), -r[2]))
     return res

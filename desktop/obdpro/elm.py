@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import threading
+import time
+from pathlib import Path
 
 from .transport import Transport
 
@@ -37,6 +39,40 @@ def to_hex(b, sep: str = "") -> str:
     return sep.join(f"{x:02X}" for x in b)
 
 
+def log_path() -> Path:
+    import os
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    d = Path(base) / "obdpro"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "adapter.log"
+
+
+class TrafficLog:
+    """Every command/response with timing, to ~/.config/obdpro/adapter.log (rotated at 2 MB) + in-memory tail."""
+
+    def __init__(self):
+        self.path = log_path()
+        if self.path.exists() and self.path.stat().st_size > 2_000_000:
+            self.path.replace(self.path.with_suffix(".log.1"))
+        self.f = open(self.path, "a", buffering=1)
+        self.tail: list[str] = []
+        self.listeners = []
+
+    def write(self, line: str) -> None:
+        line = f"{time.strftime('%H:%M:%S')}.{int(time.time() * 1000) % 1000:03d} {line}"
+        self.f.write(line + "\n")
+        self.tail.append(line)
+        del self.tail[:-2000]
+        for fn in list(self.listeners):
+            try:
+                fn(line)
+            except Exception:
+                pass
+
+
+TRAFFIC = TrafficLog()
+
+
 class ELM327:
     def __init__(self, transport: Transport):
         self.t = transport
@@ -44,7 +80,7 @@ class ELM327:
         self.protocol = 0
         self.is_can = True
         self.version = ""
-        self.log: list[str] = []
+        TRAFFIC.write(f"=== session start ({transport.__class__.__name__}) ===")
 
     @property
     def protocol_name(self) -> str:
@@ -53,10 +89,14 @@ class ELM327:
     def send(self, cmd: str, timeout: float = 2.0) -> list[str]:
         with self.lock:
             self.t.flush_input()
+            t0 = time.monotonic()
             self.t.write((cmd + "\r").encode())
             raw = self.t.read_until_prompt(timeout)
+        ms = (time.monotonic() - t0) * 1000
+        shown = raw.decode(errors="replace").replace("\r", "\\r").replace("\n", "\\n")
+        TRAFFIC.write(f"> {cmd:<14} < {shown}  [{ms:.0f} ms]" + ("" if b">" in raw else "  TIMEOUT"))
         if b">" not in raw:
-            raise ELMError(f"Timeout on {cmd}")
+            raise ELMError(f"No reply from adapter to {cmd} (timeout {timeout:.0f}s)")
         text = raw.replace(b"\x00", b"").decode(errors="ignore").replace(">", "")
         lines = [l.strip() for l in re.split(r"[\r\n]+", text)]
         lines = [l for l in lines if l and l != cmd and not l.startswith("SEARCHING") and l != "BUS INIT: ...OK"]
@@ -69,24 +109,77 @@ class ELM327:
                 raise ELMError(l)
         return lines
 
+    def request_uds(self, cmd: str, timeout: float = 2.0, pending_wait: float = 5.0) -> list[int]:
+        """Like request(), but handles 7F xx 78 (response pending): cheap ELM clones stop listening after
+        printing it, so retry with the adapter's maximum receive timeout (ATST FF ≈ 1 s per frame)."""
+        with self.lock:
+            d = self.request(cmd, timeout)
+            if not _only_pending(d):
+                return d
+            try:
+                self.send("ATSTFF", 1)
+                end = time.monotonic() + pending_wait
+                while _only_pending(d) and time.monotonic() < end:
+                    try:
+                        d = self.request(cmd, timeout + 2)
+                    except NoData:
+                        d = []
+            finally:
+                try:
+                    self.send("ATST32", 1)
+                    self.send("ATAT2", 1)
+                except ELMError:
+                    pass
+            return d
+
+    def _drain(self, quiet: float = 0.4) -> None:
+        """Wait until the adapter has been silent for `quiet` seconds, discarding late replies."""
+        end = time.monotonic() + 3
+        while time.monotonic() < end:
+            got = self.t.read_until_prompt(quiet)
+            if not got:
+                return
+            TRAFFIC.write(f"  (discarded late data: {got.decode(errors='replace')!r})")
+
+    def _sync(self) -> None:
+        """Send ATE0 until we get a clean OK back, so commands and replies are aligned."""
+        for _ in range(4):
+            try:
+                if any("OK" in l for l in self.send("ATE0", 2)):
+                    return
+            except ELMError:
+                pass
+            self._drain()
+        raise ELMError("Adapter is not answering. Is it powered (plugged into the car) and not connected to "
+                       "another phone/app?")
+
     def initialize(self) -> None:
-        try:
-            self.send("ATZ", 3)
-        except ELMError:
-            pass
-        for c in ("ATE0", "ATL0", "ATS0", "ATH0", "ATAT2", "ATSP0"):
-            self.send(c)
-        try:
-            self.version = (self.send("ATI") or [""])[0]
-        except ELMError:
-            pass
-        self.send("0100", 10)
-        try:
-            dp = self.send("ATDPN")[0].replace("A", "")
-            self.protocol = int(dp, 16)
-        except (ELMError, ValueError, IndexError):
-            self.protocol = 0
-        self.is_can = self.protocol >= 6
+        with self.lock:
+            try:
+                self.send("ATZ", 5)               # reset can be slow on BLE clones
+            except ELMError:
+                pass
+            time.sleep(0.3)
+            self._drain()
+            self._sync()
+            for c in ("ATL0", "ATS0", "ATH0", "ATAT2", "ATSP0"):
+                self.send(c)
+            try:
+                self.version = (self.send("ATI") or [""])[0]
+            except ELMError:
+                pass
+            try:
+                self.send("0100", 12)
+            except ELMError as e:
+                raise ELMError(f"Adapter OK ({self.version}) but the car did not answer: {e}. "
+                               f"Turn the ignition ON (engine can be off) and try again.") from e
+            try:
+                dp = self.send("ATDPN")[0].upper().lstrip("A")
+                self.protocol = int(dp, 16)
+            except (ELMError, ValueError, IndexError):
+                self.protocol = 0
+            self.is_can = self.protocol >= 6
+            TRAFFIC.write(f"=== connected: {self.version} · protocol {self.protocol} {self.protocol_name} ===")
 
     @staticmethod
     def merge(lines: list[str], is_can: bool) -> list[int]:
@@ -114,6 +207,11 @@ class ELM327:
 
     def close(self):
         self.t.close()
+
+
+def _only_pending(d: list[int]) -> bool:
+    return len(d) >= 3 and d[0] == 0x7F and d[2] == 0x78 and all(
+        d[i] == 0x7F and d[i + 2] == 0x78 for i in range(0, len(d) - 2, 3))
 
 
 def _is_hex(s: str) -> bool:
