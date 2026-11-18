@@ -87,6 +87,10 @@ struct UpdateSettingsSection: View {
         @Bindable var u = u
         Section {
             LabeledContent("Version", value: "\(u.currentVersion) (\(u.currentBuild))")
+            if u.isTestFlight {
+                Label("Updates arrive through TestFlight", systemImage: "airplane")
+                    .foregroundStyle(.secondary)
+            } else {
             HStack {
                 Button("Check for Updates") { Task { await u.check() } }
                     .disabled(u.state == .checking)
@@ -103,6 +107,7 @@ struct UpdateSettingsSection: View {
             Toggle("Check automatically", isOn: $u.autoCheck)
             Button { openURL(UpdateChecker.altStoreAddSource) } label: {
                 Label("Add source to AltStore (auto-updates)", systemImage: "plus.app")
+            }
             }
         } header: { Text("Updates") } footer: {
             if let l = u.lastChecked { Text("Last checked \(l.formatted(.relative(presentation: .named)))") }

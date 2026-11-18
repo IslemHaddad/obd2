@@ -32,11 +32,14 @@ final class UpdateChecker {
     let currentBuild = Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") ?? 0
     let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
 
+    /// Installed from TestFlight → TestFlight handles updates.
+    let isTestFlight = Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+
     var available: Release? { if case .available(let r) = state { r } else { nil } }
-    var showBanner: Bool { available.map { $0.build != skippedBuild } ?? false }
+    var showBanner: Bool { !isTestFlight && (available.map { $0.build != skippedBuild } ?? false) }
 
     func checkOnLaunch() async {
-        guard autoCheck else { return }
+        guard autoCheck, !isTestFlight else { return }
         if let l = lastChecked, Date().timeIntervalSince(l) < 3600 { return }   // at most hourly
         await check()
     }
