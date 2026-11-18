@@ -18,6 +18,8 @@ from ..obd import OBD
 from ..store import Store
 from ..transport import BLETransport, SerialTransport, TCPTransport
 from ..vag import MODULE_BY_ADDR, VAG, numeric
+from ..hyundai import Hyundai
+from .. import catalog
 from .common import run_bg
 
 DEFAULT_TILES = [
@@ -42,7 +44,7 @@ def _open(kind: str, arg):
         t = BLETransport(arg)
     else:
         from ..sim import SimTransport
-        t = SimTransport()
+        t = SimTransport("hyundai" if arg == "hyundai" else "seat")
     elm = ELM327(t)
     try:
         elm.initialize()
@@ -87,6 +89,17 @@ class Session(QObject):
         self.alerts = F.AlertMonitor(store, lambda lvl, txt: self.alert.emit(lvl, txt))
         self.last_volts: float | None = None
         self._known_faults: set[str] | None = None
+        veh = store.get("vehicle", {}) or {}
+        self.family = catalog.FAMILY.get(veh.get("brand", "seat"), "vag")
+
+    def _tool(self):
+        return Hyundai(self.elm) if self.family == "hyundai" else VAG(self.elm)
+
+    def set_family(self, family: str):
+        if family != self.family:
+            self.family = family
+            if self.elm:
+                self.vag = self._tool()
 
     # ---------------------------------------------------------------- connection
     @property
@@ -107,7 +120,7 @@ class Session(QObject):
 
         def done(r):
             self.elm, self.obd, self.supported = r
-            self.vag = VAG(self.elm)
+            self.vag = self._tool()
             F.set_setting(self.store, "last_conn", [kind, list(arg) if isinstance(arg, tuple) else arg])
             self._set("connected", f"{self.elm.version} · {self.elm.protocol_name}")
             self._start_poll()
@@ -164,7 +177,7 @@ class Session(QObject):
             self._set("reconnecting", f"Link lost — reconnecting (attempt {attempt})…")
             try:
                 self.elm, self.obd, self.supported = _open(kind, arg)
-                self.vag = VAG(self.elm)
+                self.vag = self._tool()
                 self._set("connected", f"{self.elm.version} · {self.elm.protocol_name} (reconnected)")
                 return True
             except Exception:
@@ -211,7 +224,7 @@ class Session(QObject):
 
     def _read_vag(self) -> dict:
         out = {}
-        if not self.vag or not self.vag.supported:
+        if not self.vag or not self.vag.supported or self.family != "vag":
             return out
         by_mod: dict[str, list[dict]] = {}
         for d in self.vag_tiles():

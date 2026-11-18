@@ -9,9 +9,22 @@ BRANDS = {  # key: (display, colour, [(model, body)])
     "porsche": ("Porsche", "#CC9933", [('911', 'coupe'), ('718', 'coupe'), ('Panamera', 'sedan'), ('Taycan', 'sedan'), ('Macan', 'suv'), ('Cayenne', 'suv')]),
     "bentley": ("Bentley", "#1A5940", [('Continental GT', 'coupe'), ('Flying Spur', 'sedan'), ('Bentayga', 'suv')]),
     "lamborghini": ("Lamborghini", "#F2BF1A", [('Huracán', 'coupe'), ('Revuelto', 'coupe'), ('Urus', 'suv')]),
+    "hyundai": ("Hyundai", "#1F6FB2", [("i10", "hatch"), ("Grand i10", "hatch"), ("Grand i10 Nios", "hatch"),
+                                     ("Grand i10 Sedan / Xcent", "sedan"), ("i20", "hatch"), ("Accent", "sedan"),
+                                     ("Elantra", "sedan"), ("Venue", "suv"), ("Creta", "suv"), ("Kona", "suv"),
+                                     ("Tucson", "suv"), ("Santa Fe", "suv"), ("Ioniq", "hatch"), ("Ioniq 5", "suv")]),
+    "kia": ("Kia", "#BB162B", [("Picanto", "hatch"), ("Rio", "hatch"), ("Ceed", "hatch"), ("Sonet", "suv"),
+                             ("Seltos", "suv"), ("Sportage", "suv"), ("Sorento", "suv"), ("Niro", "suv"),
+                             ("EV6", "suv")]),
 }
 
+FAMILY = {k: "vag" for k in ("seat", "cupra", "vw", "audi", "skoda", "porsche", "bentley", "lamborghini")}
+FAMILY.update(hyundai="hyundai", kia="hyundai")
+
 WMI = {
+    "KMH": "hyundai", "MAL": "hyundai", "NLH": "hyundai", "TMA": "hyundai", "5NP": "hyundai", "5NM": "hyundai",
+    "KM8": "hyundai", "MAJ": "hyundai", "KNA": "kia", "KNC": "kia", "KND": "kia", "U5Y": "kia", "U6Y": "kia",
+    "MZB": "kia", "5XY": "kia", "3KP": "kia",
     "VSS": "seat", "WVW": "vw", "WVG": "vw", "WV1": "vw", "WV2": "vw", "1VW": "vw", "3VW": "vw", "9BW": "vw",
     "LSV": "vw", "LFV": "vw", "XW8": "vw", "AAV": "vw", "WAU": "audi", "WUA": "audi", "TRU": "audi", "WA1": "audi",
     "TMB": "skoda", "TMP": "skoda", "WP0": "porsche", "WP1": "porsche", "SCB": "bentley", "SJA": "bentley",

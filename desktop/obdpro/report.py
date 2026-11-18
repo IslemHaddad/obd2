@@ -32,8 +32,10 @@ def _clean(p: list[int]) -> str:
     return to_hex(p)
 
 
-def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
-    o, v = OBD(elm), VAG(elm)
+def build(elm: ELM327, progress=lambda pct, msg: None, family: str = "vag") -> dict:
+    from .hyundai import Hyundai
+    o = OBD(elm)
+    v = Hyundai(elm) if family == "hyundai" else VAG(elm)
     r: dict = {"date": datetime.now().isoformat(timespec="seconds"), "adapter": elm.version,
                "protocol": elm.protocol_name, "modules": [], "notes": []}
     t0 = time.monotonic()
@@ -58,7 +60,13 @@ def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
         for ecu in o.discover_ecus():
             r["obd"].append((ecu.name, [(d.code, d.kind, d.description) for d in o.dtcs_for(ecu)]))
         r["vag"] = v.supported
-        mods = MODULES if v.supported else []
+        if not v.supported:
+            mods = []
+        elif family == "hyundai":
+            progress(12, "Searching for modules on the car")
+            mods = v.discover()
+        else:
+            mods = MODULES
         for i, m in enumerate(mods):
             progress(12 + int(80 * i / max(1, len(mods))), f"{m.address} · {m.name}")
             rep = v.report(m)

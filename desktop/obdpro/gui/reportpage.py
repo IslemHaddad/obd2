@@ -109,7 +109,7 @@ class ReportPage(QWidget):
             self.bar.hide()
             C.error_box(m)
 
-        C.run_bg(lambda: report.build(self.s.elm, self.sig.progress.emit), done, fail)
+        C.run_bg(lambda: report.build(self.s.elm, self.sig.progress.emit, self.s.family), done, fail)
 
     def save_pdf(self):
         if not self.path:

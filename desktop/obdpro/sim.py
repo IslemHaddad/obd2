@@ -8,7 +8,8 @@ from .transport import Transport
 
 
 class SimTransport(Transport):
-    def __init__(self):
+    def __init__(self, profile: str = "seat"):
+        self.profile = profile
         self.out = b""
         self.header = "7DF"
         self.headers_on = False
@@ -25,6 +26,14 @@ class SimTransport(Transport):
                      0x1000: bytes([0x00, 0x7B]), 0x10E0: (102371).to_bytes(4, "big"), 0x11BD: (3646).to_bytes(2, "big"),
                      0x1063: (3721).to_bytes(2, "big"), 0x1001: bytes([0x2E]), 0x02BD: bytes.fromhex("d9018fe300006ae30200")}
         self.routine_polls = 0
+        if profile == "hyundai":
+            self.uds_mods = {"7E0", "7D1", "7D2", "7C6"}
+            self.kwp_mods = {"7A0", "770", "7D4"}
+            self.present = self.uds_mods | self.kwp_mods
+            self.hy_faults = {"7D1": [(0x40, 0x38, 0x00, 0x09)], "7D2": [], "7C6": [(0xC1, 0x00, 0x00, 0x08)],
+                              "7E0": [(0x01, 0x30, 0x00, 0x09)]}
+            self.kwp_faults = {"7A0": [(0x96, 0x02, 0x60)], "770": [], "7D4": []}
+            self.obd_dtcs = {"7E0": ["0130"]}
 
     # transport API
     def write(self, data: bytes) -> None:
@@ -46,6 +55,8 @@ class SimTransport(Transport):
     def _handle(self, c: str) -> str:
         if c.startswith("AT"):
             return self._at(c[2:])
+        if self.profile == "hyundai" and self.header != "7DF":
+            return self._hyundai(c)
         if self.header == "7DF":
             return self._obd(c)
         if self.header not in self.present:
@@ -113,12 +124,52 @@ class SimTransport(Transport):
             self.obd_dtcs["7E0"] = []
             return "44"
         if c == "0902":
-            vin = "VSSZZZKLZMR123456".encode().hex().upper()
-            return "014\r0:4902015653535A\r1:" + vin[8:22] + "\r2:" + vin[22:]
+            vin = ("MALA851CLJM123456" if self.profile == "hyundai" else "VSSZZZKLZMR123456").encode().hex().upper()
+            return "014\r0:490201" + vin[0:8] + "\r1:" + vin[8:22] + "\r2:" + vin[22:]
         if mode == "02":
             pid = int(c[2:4], 16)
             v = self._pidval(pid)
             return f"42{pid:02X}00{v}" if v else "NO DATA"
+        return "NO DATA"
+
+    def _hyundai(self, c: str) -> str:
+        h = self.header
+        if h not in self.present:
+            return "NO DATA"
+        pre = f"{int(h, 16) + 8:03X}" if self.headers_on else ""
+        if c == "3E00":
+            return pre + ("027E00" if self.headers_on else "7E00")
+        if c in ("03", "07", "0A", "04") and h == "7E0":
+            if c == "04":
+                self.obd_dtcs["7E0"] = []
+                return "44"
+            codes = self.obd_dtcs.get("7E0", []) if c == "03" else []
+            return f"{int(c, 16) + 0x40:02X}{len(codes):02X}" + "".join(codes)
+        if h in self.uds_mods:
+            if c.startswith("1902"):
+                return "5902FF" + "".join(f"{a:02X}{b:02X}{f:02X}{st:02X}" for a, b, f, st in self.hy_faults.get(h, []))
+            if c == "14FFFFFF":
+                self.hy_faults[h] = []
+                return "54"
+            if c == "22F187":
+                return "62F187" + b"96410-B4000".hex().upper()
+            if c == "22F190":
+                return "62F190" + b"MALA851CLJM123456".hex().upper()
+            return "7F" + c[:2] + "31" if c[:2] in ("22", "2E", "31", "2F") else "7F" + c[:2] + "11"
+        if h in self.kwp_mods:
+            if c.startswith("19"):
+                return "7F1911"
+            if c == "1802FF00":
+                recs = self.kwp_faults.get(h, [])
+                return f"58{len(recs):02X}" + "".join(f"{a:02X}{b:02X}{st:02X}" for a, b, st in recs)
+            if c == "14FFFFFF":
+                return "7F1411"
+            if c == "14FF00":
+                self.kwp_faults[h] = []
+                return "54FF00"
+            if c == "1A87":
+                return "5A87" + b"95400-B4100".hex().upper()
+            return "7F" + c[:2] + "11"
         return "NO DATA"
 
     def _uds(self, c: str) -> str:

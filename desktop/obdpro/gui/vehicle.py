@@ -33,6 +33,7 @@ class VehiclePage(QWidget):
         super().__init__()
         self.s = s
         self.reports: dict[str, Report] = {}
+        self.modules = list(MODULES)
         w, lay = C.page()
         QVBoxLayout(self).addWidget(w)
         self.layout().setContentsMargins(0, 0, 0, 0)
@@ -58,7 +59,7 @@ class VehiclePage(QWidget):
 
         split = QSplitter(Qt.Horizontal)
         self.car = CarDiagram()
-        self.car.set_reports(MODULES, {})
+        self.car.set_reports(self.modules, {})
         self.car.module_clicked.connect(self.open_module)
         split.addWidget(self.car)
         self.table = QTableWidget(0, 4)
@@ -108,6 +109,19 @@ class VehiclePage(QWidget):
         self.badge.setStyleSheet(f"background: {col}; color: white; border-radius: 8px; padding: 4px 10px;"
                                  f"font-weight: 800; letter-spacing: 1px;")
         self.s.store.set("vehicle", {"brand": key, "model": self.model.currentText()})
+        fam = catalog.FAMILY.get(key, "vag")
+        if fam != getattr(self, "_fam", None):
+            self._fam = fam
+            self.s.set_family(fam)
+            self.reports = {}
+            if fam == "hyundai":
+                from ..hyundai import module_for
+                self.modules = [module_for(a) for a in (self.s.store.get("hy_modules") or [])]
+            else:
+                self.modules = list(MODULES)
+            if hasattr(self, "table"):
+                self._render()
+                self._buttons()
 
     def on_info(self, info: dict):
         vin = info.get("vin")
@@ -123,7 +137,7 @@ class VehiclePage(QWidget):
         self.scan_btn.setEnabled(ok)
         self.clear_btn.setEnabled(ok and any(r.faulty for r in self.reports.values()))
         if self.s.connected and self.s.vag is not None and not self.s.vag.supported:
-            self.note.setText("Module scan needs CAN 11-bit (2008+ MQB/MLB/MEB). Generic codes are on Diagnose.")
+            self.note.setText("Module scan needs a CAN 11-bit car. Generic codes are on Diagnose.")
         else:
             self.note.setText("")
 
@@ -134,13 +148,20 @@ class VehiclePage(QWidget):
         self.progress.setValue(0)
         vag = self.s.vag
         sig = _Progress()
-        sig.step.connect(lambda i, rep: (self.progress.setValue(int(100 * i / len(MODULES))),
+        sig.step.connect(lambda i, rep: (self.progress.setValue(int(100 * i / max(1, len(self.modules)))),
                                          self.reports.__setitem__(rep.module.address, rep), self._render()))
-
+        disc = _Progress()
+        disc.step.connect(lambda pct, n: (self.progress.setValue(pct), self.note.setText(
+            f"Searching for modules on the car… {n} found")))
         from .. import features as F
 
         def work():
-            for i, m in enumerate(MODULES, 1):
+            if self.s.family == "hyundai":
+                found = vag.discover(lambda f, n: disc.step.emit(int(f * 100), n))
+                self.modules = found
+                self.s.store.set("hy_modules", [m.address for m in found])
+                self.reports.clear()
+            for i, m in enumerate(self.modules, 1):
                 rep = vag.report(m)
                 if rep.present:
                     F.record_faults(self.s.store, self.s.vin, m.address, [(f.code, f.state) for f in rep.faults])
@@ -195,14 +216,17 @@ class VehiclePage(QWidget):
 
         C.run_bg(work, done)
 
+    def _mod(self, addr: str):
+        return next((m for m in self.modules if m.address == addr), None) or MODULE_BY_ADDR[addr]
+
     def refresh_module(self, addr: str):
         vag = self.s.vag
-        C.run_bg(lambda: vag.report(MODULE_BY_ADDR[addr]),
+        C.run_bg(lambda: vag.report(self._mod(addr)),
                  lambda r: (self.reports.__setitem__(addr, r), self._render(), self._buttons()))
 
     def _render(self):
-        self.car.set_reports(MODULES, self.reports)
-        reps = [self.reports[m.address] for m in MODULES if m.address in self.reports and self.reports[m.address].present]
+        self.car.set_reports(self.modules, self.reports)
+        reps = [self.reports[m.address] for m in self.modules if m.address in self.reports and self.reports[m.address].present]
         reps.sort(key=lambda r: (not r.faulty, r.module.address))
         self.table.setRowCount(len(reps))
         for i, r in enumerate(reps):
@@ -216,7 +240,7 @@ class VehiclePage(QWidget):
     def open_module(self, addr: str):
         if not self.s.connected:
             return C.error_box("Connect first.")
-        m = MODULE_BY_ADDR[addr]
+        m = self._mod(addr)
         dlg = ModuleDialog(self, self.s, m, self.reports.get(addr))
         dlg.finished.connect(lambda _: self.refresh_module(addr) if self.s.connected else None)
         dlg.show()
@@ -239,8 +263,9 @@ class ModuleDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(FaultsTab(s, m, report), "Faults")
         tabs.addTab(LiveTab(s, m), "Live Data")
-        tabs.addTab(CodingTab(s, m), "Coding")
-        tabs.addTab(AdaptationTab(s, m), "Adaptations")
+        if s.family == "vag":
+            tabs.addTab(CodingTab(s, m), "Coding")
+            tabs.addTab(AdaptationTab(s, m), "Adaptations")
         tabs.addTab(OutputTab(s, m), "Output Tests")
         tabs.addTab(BasicTab(s, m), "Basic Settings")
         tabs.addTab(IdentTab(s, m), "Identification")

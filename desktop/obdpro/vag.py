@@ -73,7 +73,7 @@ class Fault:
     @property
     def code(self) -> str:
         if self.powertrain:
-            return f"{self.dtc} {self.ftb:02X}"
+            return self.dtc if self.ftb == 0 else f"{self.dtc} {self.ftb:02X}"
         return f"{self.raw:06X}"
 
     @property
