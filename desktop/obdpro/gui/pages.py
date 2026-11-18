@@ -238,7 +238,7 @@ class LivePage(QWidget):
 
     def on_values(self, vals: dict):
         for t in self.tiles:
-            if t.pid.id in vals:
+            if t.pid.id in vals and isinstance(vals[t.pid.id], float):
                 t.set_value(vals[t.pid.id])
 
     def menu(self, tile, cfg, pos):

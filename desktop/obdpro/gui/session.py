@@ -40,6 +40,7 @@ class Session(QObject):
         self.supported: set[int] = set()
         self.vin: str | None = None
         self.poll_enabled = True
+        self.override_ids: list[int] | None = None     # e.g. power run: poll only these PIDs
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._log_file = None
@@ -146,7 +147,7 @@ class Session(QObject):
             if not self.poll_enabled or not self.elm:
                 time.sleep(0.1)
                 continue
-            ids = [p for p in self.selected() if p in pids.BY_ID]
+            ids = self.override_ids or [p for p in self.selected() if p in pids.BY_ID]
             try:
                 with self.elm.lock:
                     vals = self.obd.read(ids) if ids else {}
@@ -161,6 +162,7 @@ class Session(QObject):
                     return
                 vals = {}
             if vals:
+                vals["_t"] = time.monotonic()
                 self.values.emit(vals)
                 self._log(vals)
             frames += 1

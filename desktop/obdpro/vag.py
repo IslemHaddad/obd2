@@ -201,6 +201,8 @@ class VAG:
             p = self.read_did(did)
         except ELMError:
             return None
+        while p and p[-1] in (0x00, 0xAA, 0xFF):
+            p = p[:-1]
         s = bytes(b for b in p if 0x20 <= b <= 0x7E).decode().strip()
         return s or None
 
@@ -304,8 +306,11 @@ class VAG:
                     p = self.read_did(did)
                 except ELMError:
                     continue
-                if all(0x20 <= b <= 0x7E or b == 0 for b in p):
-                    out.append((name, bytes(b for b in p if b).decode().strip()))
+                trimmed = list(p)
+                while trimmed and trimmed[-1] in (0x00, 0xAA, 0xFF, 0x20):   # VAG pads with AA/00/FF
+                    trimmed.pop()
+                if trimmed and all(0x20 <= b <= 0x7E for b in trimmed):
+                    out.append((name, bytes(trimmed).decode().strip()))
                 else:
                     out.append((name, to_hex(p)))
         return out
