@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: android
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-22.04
@@ -52,7 +56,9 @@ jobs:
 
       - name: Build APK
         working-directory: android
-        run: yes | buildozer android debug 2>&1 | tail -n 300
+        run: |
+          set -o pipefail
+          yes | buildozer android debug 2>&1 | tee build.log | tail -n 200
 
       - name: Publish (stable download link)
         env:
@@ -65,6 +71,17 @@ jobs:
             --title "OBD Pro for Android (build ${BUILD})" \
             --notes "Install: open this page on the Android phone, download OBDPro-android.apk, allow 'Install unknown apps' when asked, then install. Updates: install the new APK over the old one." \
             --target "$GITHUB_SHA"
+
+      - name: Publish build errors (readable without login)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "Android build ${BUILD} failed at ${GITHUB_SHA}"; echo '```';
+            (grep -nE "Error|error:|Exception|FAILED|Traceback" android/build.log | tail -60; echo ----; tail -80 android/build.log) 2>/dev/null;
+            echo '```'; } > errors.md
+          gh release delete android-ci-errors --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-ci-errors --prerelease --latest=false --title "Android CI errors" --notes-file errors.md --target "$GITHUB_SHA"
 
       - uses: actions/upload-artifact@v4
         if: always()
