@@ -39,6 +39,8 @@ struct DashboardView: View {
             }
             .background(background.ignoresSafeArea())
             .navigationTitle("Live")
+            .onAppear { s.wantOil = true }
+            .onDisappear { s.wantOil = false }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { settings = true } label: { Image(systemName: "paintpalette") }
@@ -140,6 +142,9 @@ struct DashboardView: View {
             }
             if let v = s.batteryVoltage {
                 Pill(icon: "minus.plus.batteryblock", text: String(format: "%.1f V", v), color: v < 12 ? .orange : .green)
+            }
+            if let o = s.oilTemp {
+                Pill(icon: "drop.fill", text: String(format: "Oil %.0f °C", o), color: o >= 125 ? .red : .orange)
             }
             Spacer()
         }

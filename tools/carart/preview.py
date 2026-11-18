@@ -10,15 +10,19 @@ sys.path.insert(0, os.path.dirname(__file__))
 import spec  # noqa: E402
 
 
+MAP = (lambda x: x, lambda y: y)
+
+
 def path(cmds):
+    mx, my = MAP
     p = QPainterPath()
     for c in cmds:
         if c[0] == "M":
-            p.moveTo(c[1], c[2])
+            p.moveTo(mx(c[1]), my(c[2]))
         elif c[0] == "L":
-            p.lineTo(c[1], c[2])
+            p.lineTo(mx(c[1]), my(c[2]))
         elif c[0] == "C":
-            p.cubicTo(c[1], c[2], c[3], c[4], c[5], c[6])
+            p.cubicTo(mx(c[1]), my(c[2]), mx(c[3]), my(c[4]), mx(c[5]), my(c[6]))
         else:
             p.closeSubpath()
     return p
@@ -44,16 +48,19 @@ def wheel(p, cx, cy, r):
     p.drawEllipse(QPointF(cx, cy), r * 0.13, r * 0.13)
 
 
-def side(color, out):
-    W, H = spec.SIDE_W, spec.SIDE_H
+def side(color, out, g=None):
+    global MAP
+    W, H = spec.SIDE_W, int(g.side_h) if g else spec.SIDE_H
+    MAP = (g.side_x, g.side_y) if g else (lambda x: x, lambda y: y)
     img = QImage(W, H, QImage.Format_ARGB32)
     img.fill(QColor(15, 16, 18))
     p = QPainter(img)
     p.setRenderHint(QPainter.Antialiasing)
     S = spec.SIDE
-    sh = QRadialGradient(QPointF(W / 2, 286), W * 0.48)
+    gy = MAP[1](286)
+    sh = QRadialGradient(QPointF(W / 2, gy), W * 0.48)
     sh.setColorAt(0, QColor(0, 0, 0, 170)); sh.setColorAt(1, QColor(0, 0, 0, 0))
-    p.setPen(Qt.NoPen); p.setBrush(sh); p.drawEllipse(QPointF(W / 2, 286), W * 0.47, 18)
+    p.setPen(Qt.NoPen); p.setBrush(sh); p.drawEllipse(QPointF(W / 2, gy), W * 0.47, 18)
     c = QColor(color)
     g = QLinearGradient(0, 40, 0, 280)
     g.setColorAt(0, c.lighter(135)); g.setColorAt(0.45, c); g.setColorAt(1, c.darker(170))
@@ -71,12 +78,14 @@ def side(color, out):
     p.setPen(QPen(QColor(180, 240, 255), 3, Qt.SolidLine, Qt.RoundCap)); p.drawPath(path(S["drl"]))
     p.setPen(QPen(QColor(0, 0, 0, 120), 3, Qt.SolidLine, Qt.RoundCap)); p.drawPath(path(S["handle"]))
     for cx, cy, r in S["wheels"]:
-        wheel(p, cx, cy, r)
+        wheel(p, MAP[0](cx), MAP[1](cy), r)
     p.end(); img.save(out)
 
 
-def front(color, grille, out, badge="SEAT"):
-    W, H = spec.FRONT_W, spec.FRONT_H
+def front(color, grille, out, badge="SEAT", g=None):
+    global MAP
+    W, H = spec.FRONT_W, int(g.front_h) if g else spec.FRONT_H
+    MAP = (lambda x: x, g.front_y) if g else (lambda x: x, lambda y: y)
     img = QImage(W, H, QImage.Format_ARGB32); img.fill(QColor(15, 16, 18))
     p = QPainter(img); p.setRenderHint(QPainter.Antialiasing)
     F = spec.FRONT
@@ -85,7 +94,7 @@ def front(color, grille, out, badge="SEAT"):
     p.setBrush(sh); p.drawEllipse(QPointF(W / 2, 342), 280, 16)
     p.setBrush(QColor(12, 12, 14))
     for x, y, w, h in F["tyres"]:
-        p.drawRoundedRect(QRectF(x, y - h, w, h), 10, 10)
+        p.drawRoundedRect(QRectF(x, MAP[1](y) - h, w, h), 10, 10)
     c = QColor(color)
     g = QLinearGradient(60, 0, 540, 0); g.setColorAt(0, c.darker(140)); g.setColorAt(0.5, c.lighter(115)); g.setColorAt(1, c.darker(140))
     p.setBrush(g); p.setPen(QPen(QColor(255, 255, 255, 40), 1.2)); p.drawPath(path(F["body"]))
@@ -101,7 +110,7 @@ def front(color, grille, out, badge="SEAT"):
     p.setPen(Qt.NoPen); p.setBrush(QColor(14, 14, 16))
     p.drawPath(path(F["intake_l"])); p.drawPath(path(F["intake_r"])); p.drawPath(path(F["lower"]))
     f = QFont(); f.setBold(True); f.setPointSize(13); p.setFont(f); p.setPen(QColor(235, 235, 240))
-    p.drawText(QRectF(200, 236, 200, 30), Qt.AlignCenter, badge)
+    p.drawText(QRectF(200, MAP[1](236), 200, 30), Qt.AlignCenter, badge)
     p.end(); img.save(out)
 
 
@@ -129,9 +138,12 @@ def top(color, out):
 
 
 if __name__ == "__main__":
+    import geometry
     app = QApplication(sys.argv)
     out = sys.argv[1]
-    side("#C8102E", f"{out}/side_seat.png")
-    front("#C8102E", "seat", f"{out}/front_seat.png")
-    top("#C8102E", f"{out}/top_seat.png")
-    front("#1F6FB2", "hyundai", f"{out}/front_hyundai.png", "HYUNDAI")
+    for name, col, gr, badge in (("Ibiza", "#C8102E", "seat", "SEAT"), ("Arona", "#C8102E", "seat", "SEAT"),
+                                 ("Leon", "#C8102E", "seat", "SEAT"), ("Grand i10", "#1F6FB2", "hyundai", "HYUNDAI")):
+        g = geometry.for_model(name)
+        key = name.replace(" ", "_").lower()
+        side(col, f"{out}/side_{key}.png", g)
+        front(col, gr, f"{out}/front_{key}.png", badge, g)

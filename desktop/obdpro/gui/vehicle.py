@@ -106,7 +106,9 @@ class VehiclePage(QWidget):
         key = self.brand.currentData()
         disp, col, _ = catalog.BRANDS[key]
         body = self.model.currentData() or "hatch"
-        self.car.set_vehicle(col, body, catalog.BODY_ASPECT[body])
+        from ..carart import geometry as CG
+        geo = CG.for_model(self.model.currentText() or "")
+        self.car.set_vehicle(col, body, geo.top_h / 400.0)
         self.badge.setText(disp.upper())
         self.badge.setStyleSheet(f"background: {col}; color: white; border-radius: 8px; padding: 4px 10px;"
                                  f"font-weight: 800; letter-spacing: 1px;")

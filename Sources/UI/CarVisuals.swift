@@ -10,6 +10,7 @@ struct CarArt {
     let roofHeight: CGFloat      // 0…1 relative to car height in side/front views
     let twoTone: Bool            // contrasting roof (e.g. Arona / Venue)
     let grille: Grille
+    let geo: CarGeometry
     enum Grille { case seat, hyundai, kia, vw, generic }
 
     init(_ v: SelectedVehicle) {
@@ -18,6 +19,7 @@ struct CarArt {
         brand = v.brand.rawValue.uppercased()
         model = v.model.name
         let n = v.model.name.lowercased()
+        geo = CarGeometry.forModel(v.model.name, body: v.model.body)
         twoTone = ["arona", "venue", "kona", "t-cross", "kamiq", "sonet"].contains { n.contains($0) }
         switch v.model.body {
         case .suv: roofHeight = 0.62
@@ -42,30 +44,31 @@ struct CarSideView: View {
     let art: CarArt
     var body: some View {
         Canvas { ctx, size in
-            let k = CarArtPaths.sideSize.width / CarArtPaths.sideSize.height
+            let g = art.geo
+            let k = 1000 / g.sideH
             let w = min(size.width, size.height * k), h = w / k
             let r = CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h)
-            let sx = w / CarArtPaths.sideSize.width, sy = h / CarArtPaths.sideSize.height
-            ctx.fill(Path(ellipseIn: CGRect(x: r.minX + 30 * sx, y: r.minY + 272 * sy, width: 940 * sx, height: 26 * sy)),
+            let sx = w / 1000, sy = h / g.sideH
+            ctx.fill(Path(ellipseIn: CGRect(x: r.minX + 30 * sx, y: r.minY + g.sideY(272) * sy, width: 940 * sx, height: 26 * sy)),
                      with: .color(.black.opacity(0.45)))
-            ctx.fill(CarArtPaths.sideBody(r), with: .linearGradient(Gradient(colors: [art.color.opacity(0.95), art.color, art.color.opacity(0.55)]),
+            ctx.fill(CarArtPaths.sideBody(r, g), with: .linearGradient(Gradient(colors: [art.color.opacity(0.95), art.color, art.color.opacity(0.55)]),
                                                                     startPoint: CGPoint(x: 0, y: r.minY + 40 * sy), endPoint: CGPoint(x: 0, y: r.minY + 280 * sy)))
-            ctx.stroke(CarArtPaths.sideBody(r), with: .color(.white.opacity(0.18)), lineWidth: 1)
-            ctx.fill(CarArtPaths.sideGlass(r), with: .linearGradient(Gradient(colors: [Color(white: 0.35), Color(white: 0.06)]),
+            ctx.stroke(CarArtPaths.sideBody(r, g), with: .color(.white.opacity(0.18)), lineWidth: 1)
+            ctx.fill(CarArtPaths.sideGlass(r, g), with: .linearGradient(Gradient(colors: [Color(white: 0.35), Color(white: 0.06)]),
                                                                      startPoint: CGPoint(x: 0, y: r.minY + 50 * sy), endPoint: CGPoint(x: 0, y: r.minY + 150 * sy)))
-            ctx.fill(CarArtPaths.sideCPillar(r), with: .color(Color(white: 0.04)))
-            ctx.fill(CarArtPaths.sideBPillar(r), with: .color(Color(white: 0.04)))
-            if art.twoTone { ctx.stroke(CarArtPaths.sideCPillar(r), with: .color(.black), lineWidth: 3) }
-            ctx.fill(CarArtPaths.sideMirror(r), with: .color(art.color.opacity(0.8)))
-            ctx.fill(CarArtPaths.sideHeadlight(r), with: .color(.white.opacity(0.95)))
-            ctx.fill(CarArtPaths.sideTaillight(r), with: .color(.red))
-            ctx.stroke(CarArtPaths.sideShoulder(r), with: .color(.white.opacity(0.4)), lineWidth: 1.5)
-            ctx.stroke(CarArtPaths.sideSill(r), with: .color(.black.opacity(0.35)), lineWidth: 2)
-            ctx.stroke(CarArtPaths.sideDrl(r), with: .color(Color(red: 0.7, green: 0.95, blue: 1)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            ctx.stroke(CarArtPaths.sideHandle(r), with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            ctx.fill(CarArtPaths.sideCPillar(r, g), with: .color(Color(white: 0.04)))
+            ctx.fill(CarArtPaths.sideBPillar(r, g), with: .color(Color(white: 0.04)))
+            if art.twoTone { ctx.stroke(CarArtPaths.sideCPillar(r, g), with: .color(.black), lineWidth: 3) }
+            ctx.fill(CarArtPaths.sideMirror(r, g), with: .color(art.color.opacity(0.8)))
+            ctx.fill(CarArtPaths.sideHeadlight(r, g), with: .color(.white.opacity(0.95)))
+            ctx.fill(CarArtPaths.sideTaillight(r, g), with: .color(.red))
+            ctx.stroke(CarArtPaths.sideShoulder(r, g), with: .color(.white.opacity(0.4)), lineWidth: 1.5)
+            ctx.stroke(CarArtPaths.sideSill(r, g), with: .color(.black.opacity(0.35)), lineWidth: 2)
+            ctx.stroke(CarArtPaths.sideDrl(r, g), with: .color(Color(red: 0.7, green: 0.95, blue: 1)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            ctx.stroke(CarArtPaths.sideHandle(r, g), with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             for wh in CarArtPaths.sideWheels {
-                let c = CGPoint(x: r.minX + wh[0] * sx, y: r.minY + wh[1] * sy)
-                let rad = wh[2] * sy
+                let c = CGPoint(x: r.minX + g.sideX(wh[0]) * sx, y: r.minY + g.sideY(wh[1]) * sy)
+                let rad = wh[2] * sx
                 ctx.fill(Path(ellipseIn: CGRect(x: c.x - rad, y: c.y - rad, width: rad * 2, height: rad * 2)), with: .color(Color(white: 0.05)))
                 ctx.fill(Path(ellipseIn: CGRect(x: c.x - rad * 0.66, y: c.y - rad * 0.66, width: rad * 1.32, height: rad * 1.32)),
                          with: .color(Color(white: 0.7)))
@@ -89,41 +92,42 @@ struct CarFrontView: View {
     let art: CarArt
     var body: some View {
         Canvas { ctx, size in
-            let k = CarArtPaths.frontSize.width / CarArtPaths.frontSize.height
+            let g = art.geo
+            let k = 600 / g.frontH
             let w = min(size.width, size.height * k), h = w / k
             let r = CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h)
-            let sx = w / CarArtPaths.frontSize.width, sy = h / CarArtPaths.frontSize.height
-            ctx.fill(Path(ellipseIn: CGRect(x: r.minX + 30 * sx, y: r.minY + 330 * sy, width: 540 * sx, height: 24 * sy)),
+            let sx = w / 600, sy = h / g.frontH
+            ctx.fill(Path(ellipseIn: CGRect(x: r.minX + 30 * sx, y: r.minY + g.frontY(330) * sy, width: 540 * sx, height: 24 * sy)),
                      with: .color(.black.opacity(0.45)))
             for t in CarArtPaths.frontTyres {
-                ctx.fill(Path(roundedRect: CGRect(x: r.minX + t[0] * sx, y: r.minY + (t[1] - t[3]) * sy, width: t[2] * sx, height: t[3] * sy),
+                ctx.fill(Path(roundedRect: CGRect(x: r.minX + t[0] * sx, y: r.minY + g.frontY(t[1]) * sy - t[3] * sx, width: t[2] * sx, height: t[3] * sx),
                               cornerRadius: 6), with: .color(Color(white: 0.05)))
             }
-            ctx.fill(CarArtPaths.frontBody(r), with: .linearGradient(Gradient(colors: [art.color.opacity(0.6), art.color, art.color.opacity(0.6)]),
+            ctx.fill(CarArtPaths.frontBody(r, g), with: .linearGradient(Gradient(colors: [art.color.opacity(0.6), art.color, art.color.opacity(0.6)]),
                                                                      startPoint: CGPoint(x: r.minX, y: 0), endPoint: CGPoint(x: r.maxX, y: 0)))
-            ctx.stroke(CarArtPaths.frontBody(r), with: .color(.white.opacity(0.18)), lineWidth: 1)
-            ctx.fill(CarArtPaths.frontGlass(r), with: .linearGradient(Gradient(colors: [Color(white: 0.38), Color(white: 0.06)]),
+            ctx.stroke(CarArtPaths.frontBody(r, g), with: .color(.white.opacity(0.18)), lineWidth: 1)
+            ctx.fill(CarArtPaths.frontGlass(r, g), with: .linearGradient(Gradient(colors: [Color(white: 0.38), Color(white: 0.06)]),
                                                                       startPoint: CGPoint(x: 0, y: r.minY + 60 * sy), endPoint: CGPoint(x: 0, y: r.minY + 160 * sy)))
-            ctx.fill(CarArtPaths.frontMirrorL(r), with: .color(art.color.opacity(0.8)))
-            ctx.fill(CarArtPaths.frontMirrorR(r), with: .color(art.color.opacity(0.8)))
-            ctx.fill(CarArtPaths.frontHeadlightL(r), with: .color(Color(white: 0.12)))
-            ctx.fill(CarArtPaths.frontHeadlightR(r), with: .color(Color(white: 0.12)))
+            ctx.fill(CarArtPaths.frontMirrorL(r, g), with: .color(art.color.opacity(0.8)))
+            ctx.fill(CarArtPaths.frontMirrorR(r, g), with: .color(art.color.opacity(0.8)))
+            ctx.fill(CarArtPaths.frontHeadlightL(r, g), with: .color(Color(white: 0.12)))
+            ctx.fill(CarArtPaths.frontHeadlightR(r, g), with: .color(Color(white: 0.12)))
             let led = Color(red: 0.78, green: 0.96, blue: 1)
-            ctx.stroke(CarArtPaths.frontDrlL(r), with: .color(led), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-            ctx.stroke(CarArtPaths.frontDrlR(r), with: .color(led), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+            ctx.stroke(CarArtPaths.frontDrlL(r, g), with: .color(led), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+            ctx.stroke(CarArtPaths.frontDrlR(r, g), with: .color(led), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             let grille: Path
             switch art.grille {
-            case .hyundai: grille = CarArtPaths.frontGrilleHyundai(r)
-            case .kia: grille = CarArtPaths.frontGrilleKia(r)
-            default: grille = CarArtPaths.frontGrilleSeat(r)
+            case .hyundai: grille = CarArtPaths.frontGrilleHyundai(r, g)
+            case .kia: grille = CarArtPaths.frontGrilleKia(r, g)
+            default: grille = CarArtPaths.frontGrilleSeat(r, g)
             }
             ctx.fill(grille, with: .color(Color(white: 0.06)))
             ctx.stroke(grille, with: .color(Color(white: 0.8)), lineWidth: 2)
-            ctx.fill(CarArtPaths.frontIntakeL(r), with: .color(Color(white: 0.06)))
-            ctx.fill(CarArtPaths.frontIntakeR(r), with: .color(Color(white: 0.06)))
-            ctx.fill(CarArtPaths.frontLower(r), with: .color(Color(white: 0.06)))
+            ctx.fill(CarArtPaths.frontIntakeL(r, g), with: .color(Color(white: 0.06)))
+            ctx.fill(CarArtPaths.frontIntakeR(r, g), with: .color(Color(white: 0.06)))
+            ctx.fill(CarArtPaths.frontLower(r, g), with: .color(Color(white: 0.06)))
             ctx.draw(Text(art.brand).font(.system(size: max(8, 16 * sx), weight: .heavy, design: .rounded)).foregroundColor(.white),
-                     at: CGPoint(x: r.midX, y: r.minY + 251 * sy))
+                     at: CGPoint(x: r.midX, y: r.minY + g.frontY(251) * sy))
         }
     }
 }
@@ -145,7 +149,7 @@ struct ScanShowcase: View {
                 CarSideView(art: art).padding(20).tag(0)
                 CarFrontView(art: art).padding(20).tag(1)
                 CarTopView(color: art.color, body: art.body)
-                    .frame(width: 150, height: 150 * art.body.aspect).rotationEffect(.degrees(90))
+                    .frame(width: 150, height: 150 * art.geo.topAspect).rotationEffect(.degrees(90))
                     .frame(maxWidth: .infinity, maxHeight: .infinity).tag(2)
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
@@ -184,7 +188,7 @@ struct CarGallery: View {
             CarSideView(art: art).padding(16)
             CarFrontView(art: art).padding(16)
             CarTopView(color: art.color, body: art.body)
-                .frame(width: 120, height: 120 * art.body.aspect).rotationEffect(.degrees(90))
+                .frame(width: 120, height: 120 * art.geo.topAspect).rotationEffect(.degrees(90))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .tabViewStyle(.page(indexDisplayMode: .always))

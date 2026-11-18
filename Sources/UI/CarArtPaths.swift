@@ -8,9 +8,10 @@ enum CarArtPaths {
 
     static let sideSize = CGSize(width: 1000, height: 340)
 
-    static func sideBody(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideBody(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(40.0, 270.0))
         q.addCurve(to: p(22.0, 214.0), control1: p(18.0, 262.0), control2: p(14.0, 232.0))
@@ -33,9 +34,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideGlass(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideGlass(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(392.0, 150.0))
         q.addCurve(to: p(508.0, 66.0), control1: p(430.0, 116.0), control2: p(470.0, 82.0))
@@ -47,9 +49,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideCPillar(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideCPillar(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(752.0, 58.0))
         q.addCurve(to: p(868.0, 86.0), control1: p(800.0, 62.0), control2: p(846.0, 74.0))
@@ -59,9 +62,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideBPillar(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideBPillar(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(616.0, 56.0))
         q.addLine(to: p(632.0, 56.0))
@@ -71,27 +75,30 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideShoulder(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideShoulder(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(130.0, 186.0))
         q.addCurve(to: p(960.0, 168.0), control1: p(400.0, 168.0), control2: p(700.0, 160.0))
         return q
     }
 
-    static func sideSill(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideSill(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(330.0, 250.0))
         q.addCurve(to: p(680.0, 250.0), control1: p(480.0, 246.0), control2: p(600.0, 246.0))
         return q
     }
 
-    static func sideHeadlight(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideHeadlight(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(36.0, 196.0))
         q.addCurve(to: p(160.0, 178.0), control1: p(70.0, 182.0), control2: p(120.0, 176.0))
@@ -101,18 +108,20 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideDrl(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideDrl(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(46.0, 202.0))
         q.addCurve(to: p(150.0, 185.0), control1: p(80.0, 190.0), control2: p(120.0, 184.0))
         return q
     }
 
-    static func sideTaillight(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideTaillight(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(918.0, 166.0))
         q.addCurve(to: p(976.0, 182.0), control1: p(945.0, 166.0), control2: p(966.0, 172.0))
@@ -122,9 +131,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideMirror(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideMirror(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(412.0, 132.0))
         q.addCurve(to: p(456.0, 124.0), control1: p(422.0, 118.0), control2: p(446.0, 116.0))
@@ -134,9 +144,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func sideHandle(_ r: CGRect) -> Path {
-        let sx = r.width / 1000.0, sy = r.height / 340.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func sideHandle(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 1000.0, sy = r.height / g.sideH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + g.sideX(x) * sx, y: r.minY + g.sideY(y) * sy) }
         var q = Path()
         q.move(to: p(520.0, 172.0))
         q.addLine(to: p(552.0, 172.0))
@@ -149,9 +160,10 @@ enum CarArtPaths {
 
     static let frontSize = CGSize(width: 600, height: 400)
 
-    static func frontBody(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontBody(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(70.0, 330.0))
         q.addCurve(to: p(64.0, 200.0), control1: p(52.0, 300.0), control2: p(50.0, 240.0))
@@ -166,9 +178,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontGlass(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontGlass(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(150.0, 156.0))
         q.addCurve(to: p(240.0, 68.0), control1: p(180.0, 116.0), control2: p(206.0, 82.0))
@@ -179,9 +192,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontHeadlightL(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontHeadlightL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(76.0, 196.0))
         q.addCurve(to: p(210.0, 196.0), control1: p(110.0, 186.0), control2: p(160.0, 186.0))
@@ -191,9 +205,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontHeadlightR(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontHeadlightR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(524.0, 196.0))
         q.addCurve(to: p(390.0, 196.0), control1: p(490.0, 186.0), control2: p(440.0, 186.0))
@@ -203,9 +218,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontDrlL(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontDrlL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(88.0, 204.0))
         q.addLine(to: p(196.0, 202.0))
@@ -213,9 +229,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontDrlR(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontDrlR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(512.0, 204.0))
         q.addLine(to: p(404.0, 202.0))
@@ -223,9 +240,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontGrilleSeat(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontGrilleSeat(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(214.0, 212.0))
         q.addLine(to: p(386.0, 212.0))
@@ -235,9 +253,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontGrilleHyundai(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontGrilleHyundai(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(200.0, 214.0))
         q.addLine(to: p(400.0, 214.0))
@@ -248,9 +267,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontGrilleKia(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontGrilleKia(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(230.0, 226.0))
         q.addCurve(to: p(370.0, 226.0), control1: p(260.0, 214.0), control2: p(340.0, 214.0))
@@ -259,9 +279,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontIntakeL(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontIntakeL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(96.0, 286.0))
         q.addLine(to: p(170.0, 280.0))
@@ -271,9 +292,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontIntakeR(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontIntakeR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(504.0, 286.0))
         q.addLine(to: p(430.0, 280.0))
@@ -283,9 +305,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontLower(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontLower(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(200.0, 300.0))
         q.addLine(to: p(400.0, 300.0))
@@ -295,9 +318,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontMirrorL(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontMirrorL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(96.0, 150.0))
         q.addCurve(to: p(50.0, 166.0), control1: p(70.0, 146.0), control2: p(52.0, 152.0))
@@ -306,9 +330,10 @@ enum CarArtPaths {
         return q
     }
 
-    static func frontMirrorR(_ r: CGRect) -> Path {
-        let sx = r.width / 600.0, sy = r.height / 400.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
+    static func frontMirrorR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
+        let sx = r.width / 600.0, sy = r.height / g.frontH
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + g.frontY(y) * sy) }
         var q = Path()
         q.move(to: p(504.0, 150.0))
         q.addCurve(to: p(550.0, 166.0), control1: p(530.0, 146.0), control2: p(548.0, 152.0))
@@ -321,7 +346,8 @@ enum CarArtPaths {
 
     static let topSize = CGSize(width: 400, height: 900)
 
-    static func topBody(_ r: CGRect) -> Path {
+    static func topBody(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -341,7 +367,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topBonnetL(_ r: CGRect) -> Path {
+    static func topBonnetL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -350,7 +377,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topBonnetR(_ r: CGRect) -> Path {
+    static func topBonnetR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -359,7 +387,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topWindscreen(_ r: CGRect) -> Path {
+    static func topWindscreen(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -371,7 +400,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topRoof(_ r: CGRect) -> Path {
+    static func topRoof(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -383,7 +413,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topPanorama(_ r: CGRect) -> Path {
+    static func topPanorama(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -395,7 +426,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topRearGlass(_ r: CGRect) -> Path {
+    static func topRearGlass(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -407,7 +439,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topHeadlightL(_ r: CGRect) -> Path {
+    static func topHeadlightL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -419,7 +452,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topHeadlightR(_ r: CGRect) -> Path {
+    static func topHeadlightR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -431,7 +465,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topTaillight(_ r: CGRect) -> Path {
+    static func topTaillight(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -443,7 +478,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topMirrorL(_ r: CGRect) -> Path {
+    static func topMirrorL(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()
@@ -454,7 +490,8 @@ enum CarArtPaths {
         return q
     }
 
-    static func topMirrorR(_ r: CGRect) -> Path {
+    static func topMirrorR(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {
+        _ = g
         let sx = r.width / 400.0, sy = r.height / 900.0
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }
         var q = Path()

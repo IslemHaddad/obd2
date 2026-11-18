@@ -200,7 +200,7 @@ struct CarDiagram: View {
 
     var body: some View {
         GeometryReader { g in
-            let aspect = vehicle.model.body.aspect
+            let aspect = CarGeometry.forModel(vehicle.model.name, body: vehicle.model.body).topAspect
             let h = min(g.size.height, g.size.width * aspect)
             let w = h / aspect
             let origin = CGPoint(x: (g.size.width - w) / 2, y: (g.size.height - h) / 2)

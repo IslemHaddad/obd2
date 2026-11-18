@@ -10,10 +10,18 @@ def f(v):
     return f"{float(v):.1f}"
 
 
-def path_fn(name, cmds, W, H):
-    lines = [f"    static func {name}(_ r: CGRect) -> Path {{",
-             f"        let sx = r.width / {W}.0, sy = r.height / {H}.0",
-             "        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * sx, y: r.minY + y * sy) }",
+MAPS = {
+    "side": ("g.sideX(x)", "g.sideY(y)", "1000.0", "g.sideH"),
+    "front": ("x", "g.frontY(y)", "600.0", "g.frontH"),
+    "top": ("x", "y", "400.0", "900.0"),
+}
+
+
+def path_fn(name, cmds, W, H, view):
+    mx, my, w, h = MAPS[view]
+    lines = [f"    static func {name}(_ r: CGRect, _ g: CarGeometry = .leon) -> Path {{",
+             f"        let sx = r.width / {w}, sy = r.height / {h}",
+             f"        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {{ CGPoint(x: r.minX + {mx} * sx, y: r.minY + {my} * sy) }}",
              "        var q = Path()"]
     for c in cmds:
         if c[0] == "M":
@@ -39,7 +47,7 @@ def main(out):
         for k, v in data.items():
             if v and isinstance(v[0], tuple) and isinstance(v[0][0], str):
                 name = prefix + "".join(w.capitalize() for w in k.split("_"))
-                parts.append(path_fn(name, v, W, H))
+                parts.append(path_fn(name, v, W, H, prefix))
             else:
                 arr = ", ".join("[" + ", ".join(f(x) for x in t) + "]" for t in v)
                 name = prefix + "".join(w.capitalize() for w in k.split("_"))

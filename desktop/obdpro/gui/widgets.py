@@ -249,73 +249,71 @@ class CarDiagram(QWidget):
             self.setToolTip(f"{m.address} · {m.name}{extra}")
 
     def paintEvent(self, _):
+        from ..carart import spec as SP
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         H = self.height() - 20
         h = min(H, (self.width() - 40) * self.aspect)
         w = h / self.aspect
         x0, y0 = (self.width() - w) / 2, (self.height() - h) / 2
-        roof0 = 0.27 if self.body == "van" else 0.36
-        roof1 = {"sedan": 0.72, "coupe": 0.72, "hatch": 0.84}.get(self.body, 0.88)
+        sx, sy = w / SP.TOP_W, h / SP.TOP_H
 
-        def R(fx, fy, fw, fh):
-            return QRectF(x0 + fx * w, y0 + fy * h, fw * w, fh * h)
+        def path(cmds):
+            q = QPainterPath()
+            for c in cmds:
+                if c[0] == "M":
+                    q.moveTo(x0 + c[1] * sx, y0 + c[2] * sy)
+                elif c[0] == "L":
+                    q.lineTo(x0 + c[1] * sx, y0 + c[2] * sy)
+                elif c[0] == "C":
+                    q.cubicTo(x0 + c[1] * sx, y0 + c[2] * sy, x0 + c[3] * sx, y0 + c[4] * sy, x0 + c[5] * sx, y0 + c[6] * sy)
+                else:
+                    q.closeSubpath()
+            return q
 
-        # wheels
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(10, 10, 12))
-        for fy in (0.2, 0.8):
-            for fx in (-0.035, 0.905):
-                p.drawRoundedRect(R(fx, fy - 0.065, 0.13, 0.13), 5, 5)
-        # body glow + body
+        T = SP.TOP
+        # glow
         glow = QRadialGradient(QPointF(x0 + w / 2, y0 + h / 2), h * 0.6)
         gc = QColor(self.color)
         gc.setAlpha(55)
         glow.setColorAt(0, gc)
         glow.setColorAt(1, QColor(0, 0, 0, 0))
+        p.setPen(Qt.NoPen)
         p.setBrush(glow)
         p.drawRect(QRectF(x0 - w * 0.6, y0 - 20, w * 2.2, h + 40))
+        p.setBrush(QColor(10, 10, 12))
+        for x, y, ww, hh in T["wheels"]:
+            p.drawRoundedRect(QRectF(x0 + x * sx, y0 + y * sy, ww * sx, hh * sy), 6, 6)
         g = QLinearGradient(QPointF(x0, 0), QPointF(x0 + w, 0))
-        g.setColorAt(0, self.color.lighter(115))
-        g.setColorAt(0.5, self.color)
+        g.setColorAt(0, self.color.darker(150))
+        g.setColorAt(0.5, self.color.lighter(120))
         g.setColorAt(1, self.color.darker(150))
         p.setBrush(g)
-        p.setPen(QPen(QColor(255, 255, 255, 50), 1))
-        p.drawRoundedRect(R(0.05, 0, 0.9, 1), w * 0.3, w * 0.3)
-        # mirrors
+        p.setPen(QPen(QColor(255, 255, 255, 45), 1))
+        p.drawPath(path(T["body"]))
         p.setPen(Qt.NoPen)
-        p.setBrush(self.color.darker(110))
-        for fx in (-0.02, 0.9):
-            p.drawRoundedRect(R(fx, roof0 - 0.035, 0.12, 0.025), 4, 4)
-        # windshield
-        p.setBrush(QColor(0, 0, 0, 180))
-        ws = QPainterPath()
-        ws.moveTo(x0 + w * 0.22, y0 + h * (roof0 - 0.1))
-        ws.lineTo(x0 + w * 0.78, y0 + h * (roof0 - 0.1))
-        ws.lineTo(x0 + w * 0.87, y0 + h * roof0)
-        ws.lineTo(x0 + w * 0.13, y0 + h * roof0)
-        ws.closeSubpath()
-        p.drawPath(ws)
-        # roof
-        p.setBrush(QColor(0, 0, 0, 70))
-        p.setPen(QPen(QColor(255, 255, 255, 25), 1))
-        p.drawRoundedRect(R(0.17, roof0, 0.66, roof1 - roof0), w * 0.08, w * 0.08)
-        # rear window
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(0, 0, 0, 170))
-        rw = QPainterPath()
-        rw.moveTo(x0 + w * 0.17, y0 + h * roof1)
-        rw.lineTo(x0 + w * 0.83, y0 + h * roof1)
-        rw.lineTo(x0 + w * 0.75, y0 + h * (roof1 + 0.06))
-        rw.lineTo(x0 + w * 0.25, y0 + h * (roof1 + 0.06))
-        rw.closeSubpath()
-        p.drawPath(rw)
-        # lights
-        for fx in (0.14, 0.66):
-            p.setBrush(QColor(255, 255, 255, 230))
-            p.drawRoundedRect(R(fx, 0.015, 0.2, 0.012), 3, 3)
-            p.setBrush(QColor(C.RED))
-            p.drawRoundedRect(R(fx, 0.973, 0.2, 0.012), 3, 3)
+        p.setBrush(self.color.darker(115))
+        p.drawPath(path(T["mirror_l"]))
+        p.drawPath(path(T["mirror_r"]))
+        p.setBrush(QColor(14, 16, 20))
+        p.drawPath(path(T["windscreen"]))
+        p.drawPath(path(T["rear_glass"]))
+        p.setBrush(QColor(20, 22, 26))
+        p.drawPath(path(T["roof"]))
+        pg = QLinearGradient(0, y0 + 400 * sy, 0, y0 + 560 * sy)
+        pg.setColorAt(0, QColor(70, 80, 95))
+        pg.setColorAt(1, QColor(20, 24, 30))
+        p.setBrush(pg)
+        p.drawPath(path(T["panorama"]))
+        p.setBrush(QColor(240, 250, 255))
+        p.drawPath(path(T["headlight_l"]))
+        p.drawPath(path(T["headlight_r"]))
+        p.setBrush(QColor(C.RED))
+        p.drawPath(path(T["taillight"]))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(255, 255, 255, 60), 1.5))
+        p.drawPath(path(T["bonnet_l"]))
+        p.drawPath(path(T["bonnet_r"]))
         # hotspots
         self._spots.clear()
         for m in self.modules:
