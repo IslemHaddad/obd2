@@ -23,7 +23,7 @@ class SimTransport(Transport):
                        "714": [0x01, 0x04, 0x20, 0x00, 0x8C, 0x00]}
         self.dids = {0xF187: b"5F0919605B ", 0xF197: b"BCM MQB    ", 0xF189: b"0254", 0xF191: b"5Q0937084  ",
                      0x1000: bytes([0x00, 0x7B]), 0x10E0: (102371).to_bytes(4, "big"), 0x11BD: (3646).to_bytes(2, "big"),
-                     0x1063: (3721).to_bytes(2, "big"), 0x1001: bytes([0x2E]), 0x02BD: bytes([0x01])}
+                     0x1063: (3721).to_bytes(2, "big"), 0x1001: bytes([0x2E]), 0x02BD: bytes([0x01, 0x8F, 0xE3])}
         self.routine_polls = 0
 
     # transport API

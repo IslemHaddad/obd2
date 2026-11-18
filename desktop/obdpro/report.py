@@ -17,6 +17,9 @@ ENGINE_DIDS = {
     0x1063: ("Coolant temperature (engine)", lambda p: f"{(p[0] << 8 | p[1]) / 10 - 273.15:.1f} °C"),
 }
 
+# Modules that keep their own copy of the odometer (address → DID, 3-byte km at the end of the payload).
+MILEAGE_SOURCES = {"01": (0x10E0, "Engine"), "5F": (0x02BD, "Infotainment")}
+
 SNAPSHOT_PIDS = [0x0C, 0x0D, 0x05, 0x0F, 0x46, 0x04, 0x11, 0x42, 0x33, 0x2F, 0x06, 0x07, 0x1F, 0x21, 0x31, 0x4D, 0x4E]
 
 
@@ -79,6 +82,17 @@ def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
                                 entry["extra"].append((name, fmt(v.read_did(did))))
                             except (ELMError, IndexError):
                                 pass
+                    if m.address in MILEAGE_SOURCES:
+                        did, src = MILEAGE_SOURCES[m.address]
+                        try:
+                            p = v.read_did(did)
+                            km = int.from_bytes(bytes(p[-3:]), "big") if len(p) >= 3 else None
+                            if km:
+                                r.setdefault("mileage", []).append((src, km))
+                                if m.address != "01":
+                                    entry["extra"].append(("Odometer copy", f"{km:,} km"))
+                        except ELMError:
+                            pass
             r["modules"].append(entry)
         # crash / integrity notes
         ab = next((m for m in r["modules"] if m["address"] == "15"), None)
@@ -86,6 +100,14 @@ def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
             r["notes"].append(("Airbag", "No airbag faults stored — no deployment crash recorded in this module."
                                if not ab["faults"] else
                                f"Airbag module has {len(ab['faults'])} fault(s) — check for crash data stored."))
+        miles = r.get("mileage", [])
+        if len(miles) >= 2:
+            lo, hi = min(k for _, k in miles), max(k for _, k in miles)
+            srcs = ", ".join(f"{n} {k:,} km" for n, k in miles)
+            r["notes"].append(("Mileage", f"Consistent across modules ({srcs}) — no sign of tampering."
+                               if hi - lo <= 50 else
+                               f"MISMATCH between modules ({srcs}) — difference {hi - lo:,} km. A module may have "
+                               f"been swapped, or the odometer altered."))
         eng = next((m for m in r["modules"] if m["address"] == "01"), None)
         odo = next((x[1] for x in (eng or {}).get("extra", []) if x[0].startswith("Odometer")), None)
         if odo:
