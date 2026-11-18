@@ -41,26 +41,40 @@ class Hyundai(VAG):
     def supported(self) -> bool:
         return self.elm.protocol in (6, 8)
 
+    # Hyundai modules differ in which "are you there" they answer (seen on a Grand i10: ABS/cluster/BCM answer
+    # 3E01 with a negative reply, MDPS only answers 10 81, airbag only 10 03…). Any reply on +8 = module present.
+    PROBES = ("3E00", "3E01", "1081", "1003")
+
     def discover(self, progress=None) -> list[Module]:
-        """Send TesterPresent (3E 00) to every 11-bit physical address and keep the ones that answer on +8."""
         found: list[Module] = []
         ids = [i for i in PROBE_RANGE if i != 0x7DF]
         with self.elm.lock:
             try:
                 self.elm.send("ATH1", 1)
+                self.elm.send("ATST19", 1)          # ~100 ms receive timeout: modules reply in <20 ms
                 for n, rid in enumerate(ids):
                     if progress and n % 8 == 0:
                         progress(n / len(ids), len(found))
+                    want = f"{rid + 8:03X}"
                     try:
                         self.elm.send(f"ATSH{rid:03X}", 1)
-                        lines = self.elm.send("3E00", 0.3)
                     except ELMError:
                         continue
-                    want = f"{rid + 8:03X}"
-                    if any(l.replace(" ", "").upper().startswith(want) for l in lines):
-                        found.append(module_for(f"{rid:03X}"))
+                    for probe in self.PROBES:
+                        try:
+                            lines = self.elm.send(probe, 0.4)
+                        except ELMError:
+                            continue
+                        if any(l.replace(" ", "").upper().startswith(want) for l in lines):
+                            found.append(module_for(f"{rid:03X}"))
+                            break
+                    if found and found[-1].address == f"{rid:03X}":
+                        try:                                  # return the module to its default session
+                            self.elm.send("1001", 0.4)
+                        except ELMError:
+                            pass
             finally:
-                for c in ("ATH0", "ATSH7DF"):
+                for c in ("ATST32", "ATAT2", "ATH0", "ATSH7DF"):
                     try:
                         self.elm.send(c, 1)
                     except ELMError:
@@ -68,40 +82,74 @@ class Hyundai(VAG):
         return found
 
     # ---- faults
-    def report(self, m: Module) -> Report:
-        with self.channel(m):
-            faults: list[Fault] = []
-            ok = False
-            # UDS first
-            try:
-                d = self.elm.request_uds("1902FF", 2)
+    def _uds_faults(self, m: Module):
+        """UDS 19 02 with fallbacks seen on Hyundai: some reject mask FF (NRC 31 → narrower mask),
+        some only answer in extended session (NRC 7F/7E/22 → 10 03 first)."""
+        in_ext = False
+        for mask in ("FF", "2F", "09", "08", "0D", "0F"):
+            for _attempt in range(2):
+                try:
+                    d = self.elm.request_uds(f"1902{mask}", 2)
+                except ELMError:
+                    return None, in_ext
                 r = _positive(d, 0x59, 0x02)
                 if r is not None:
-                    ok = True
+                    out = []
                     rec = r[3:]
                     for j in range(0, len(rec) - 3, 4):
                         a, b, c, st = rec[j:j + 4]
                         if (a | b) and st & 0x2F:
-                            faults.append(Fault(dtc_db.decode(a, b), c, st, a << 16 | b << 8 | c, True))
+                            out.append(Fault(dtc_db.decode(a, b), c, st, a << 16 | b << 8 | c, True))
+                    return out, in_ext
+                n = _negative(d, 0x19)
+                if n and n.nrc in (0x7F, 0x7E, 0x22) and not in_ext:
+                    try:
+                        self.session(0x03)
+                        in_ext = True
+                        continue                      # retry same mask in extended session
+                    except ELMError:
+                        return None, in_ext
+                if n and n.nrc == 0x31:
+                    break                             # try next mask
+                return None, in_ext                   # 0x11 not supported etc.
+        return None, in_ext
+
+    def _kwp_faults(self):
+        for cmd in ("1800FF00", "1802FF00"):
+            try:
+                d = self.elm.request_uds(cmd, 2)
             except ELMError:
-                pass
-            if not ok:
-                # KWP2000: 18 02 FF 00 → 58 n [hi lo status]*n
+                continue
+            r = _positive(d, 0x58)
+            if r is not None and len(r) >= 2:
+                out = []
+                rec = r[2:]
+                for j in range(0, len(rec) - 2, 3):
+                    a, b, st = rec[j:j + 3]
+                    if a | b:
+                        out.append(Fault(dtc_db.decode(a, b), 0, 0x09 if st & 0x20 else 0x08, a << 16 | b << 8, True))
+                return out
+        return None
+
+    def report(self, m: Module) -> Report:
+        with self.channel(m):
+            faults, in_ext = self._uds_faults(m)
+            if faults is None:
+                faults = self._kwp_faults()
+            if faults is None and m.category == "powertrain":
+                try:                                  # SAE mode 03/07 sent physically
+                    from .obd import OBD
+                    o = OBD(self.elm)
+                    faults = [Fault(d.code, 0, 0x08 if d.kind == "Stored" else 0x04, 0, True)
+                              for d in o.dtcs("03", "Stored") + o.dtcs("07", "Pending")]
+                except ELMError:
+                    faults = None
+            if in_ext:
                 try:
-                    d = self.elm.request_uds("1802FF00", 2)
-                    r = _positive(d, 0x58)
-                    if r is not None and len(r) >= 2:
-                        ok = True
-                        rec = r[2:]
-                        for j in range(0, len(rec) - 2, 3):
-                            a, b, st = rec[j:j + 3]
-                            if (a | b) and st:
-                                # KWP status: bit6 = warning lamp, bits 5/6 "present"; treat bit5 as active
-                                faults.append(Fault(dtc_db.decode(a, b), 0, 0x09 if st & 0x20 else 0x08,
-                                                    a << 16 | b << 8, True))
+                    self.session(0x01)
                 except ELMError:
                     pass
-            if not ok:
+            if faults is None:
                 return Report(m, False)
             uniq = {}
             for f in faults:
@@ -124,13 +172,24 @@ class Hyundai(VAG):
 
     def clear(self, m: Module) -> None:
         with self.channel(m):
-            for cmd, pos in (("14FFFFFF", 0x54), ("14FF00", 0x54)):
-                try:
-                    d = self.elm.request_uds(cmd, 3, pending_wait=8)
-                    if _positive(d, pos) is not None:
-                        return
-                except ELMError:
-                    pass
+            for ext in (False, True):
+                if ext:
+                    try:
+                        self.session(0x03)
+                    except ELMError:
+                        break
+                for cmd, pos in (("14FFFFFF", 0x54), ("14FF00", 0x54)):
+                    try:
+                        d = self.elm.request_uds(cmd, 3, pending_wait=8)
+                        if _positive(d, pos) is not None:
+                            if ext:
+                                try:
+                                    self.session(0x01)
+                                except ELMError:
+                                    pass
+                            return
+                    except ELMError:
+                        pass
             if m.category == "powertrain":
                 try:
                     d = self.elm.request_uds("04", 5, pending_wait=8)

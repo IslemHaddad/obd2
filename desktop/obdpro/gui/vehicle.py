@@ -46,9 +46,11 @@ class VehiclePage(QWidget):
         self.vin = C.label("", "muted")
         self.badge = QLabel()
         self.scan_btn = C.button("Full Scan", "primary", self.scan)
+        self._force_discover = False
+        self.rediscover_btn = C.button("Re-discover modules", slot=self._rediscover)
         self.clear_btn = C.button("Clear Faulty Modules", "danger", self.clear_faulty)
         lay.addLayout(C.row(self.badge, C.label("Vehicle", "h1"), self.brand, self.model, "stretch",
-                            self.clear_btn, self.scan_btn))
+                            self.rediscover_btn, self.clear_btn, self.scan_btn))
         lay.addLayout(C.row(self.vin, "stretch", C.pill("Electronics", C.YELLOW), C.pill("Powertrain / Chassis", C.ORANGE),
                             C.pill("Safety", C.RED), C.pill("OK", C.GREEN)))
         self.progress = QProgressBar()
@@ -136,6 +138,8 @@ class VehiclePage(QWidget):
         ok = self.s.connected and self.s.vag is not None and self.s.vag.supported
         self.scan_btn.setEnabled(ok)
         self.clear_btn.setEnabled(ok and any(r.faulty for r in self.reports.values()))
+        self.rediscover_btn.setVisible(self.s.family == "hyundai")
+        self.rediscover_btn.setEnabled(ok)
         if self.s.connected and self.s.vag is not None and not self.s.vag.supported:
             self.note.setText("Module scan needs a CAN 11-bit car. Generic codes are on Diagnose.")
         else:
@@ -157,7 +161,16 @@ class VehiclePage(QWidget):
 
         def work():
             if self.s.family == "hyundai":
-                found = vag.discover(lambda f, n: disc.step.emit(int(f * 100), n))
+                from ..hyundai import module_for
+                known = (self.s.store.get("hy_modules_by_vin", {}) or {}).get(self.s.vin or "")
+                if known and not self._force_discover:
+                    found = [module_for(a) for a in known]
+                else:
+                    found = vag.discover(lambda f, n: disc.step.emit(int(f * 100), n))
+                    byvin = self.s.store.get("hy_modules_by_vin", {}) or {}
+                    byvin[self.s.vin or ""] = [m.address for m in found]
+                    self.s.store.set("hy_modules_by_vin", byvin)
+                self._force_discover = False
                 self.modules = found
                 self.s.store.set("hy_modules", [m.address for m in found])
                 self.reports.clear()
@@ -215,6 +228,10 @@ class VehiclePage(QWidget):
                 C.error_box("\n\n".join(msg))
 
         C.run_bg(work, done)
+
+    def _rediscover(self):
+        self._force_discover = True
+        self.scan()
 
     def _mod(self, addr: str):
         return next((m for m in self.modules if m.address == addr), None) or MODULE_BY_ADDR[addr]
