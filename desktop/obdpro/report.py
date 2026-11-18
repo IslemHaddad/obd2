@@ -39,7 +39,7 @@ def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
     t0 = time.monotonic()
     with elm.lock:
         progress(2, "Vehicle identification")
-        r["battery"] = elm.battery_voltage()
+        r["battery"] = None
         r["vin"] = o.mode09(0x02)
         r["cal_id"] = o.mode09(0x04)
         brand = catalog.WMI.get((r["vin"] or "")[:3].upper())
@@ -50,6 +50,8 @@ def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
         r["mil"] = rd.mil_on if rd else None
         r["readiness"] = [(n, c) for n, s, c in rd.monitors if s] if rd else []
         snap = o.read([p for p in SNAPSHOT_PIDS if p in sup])
+        # The car's own module voltage (PID 42) is accurate; cheap adapters' ATRV can read volts off.
+        r["battery"] = snap.get(0x42) or elm.battery_voltage()
         r["snapshot"] = [(pids.BY_ID[k].name, f"{val:.1f} {pids.BY_ID[k].unit}") for k, val in snap.items()]
         progress(10, "Generic OBD-II codes")
         r["obd"] = []
@@ -86,7 +88,7 @@ def build(elm: ELM327, progress=lambda pct, msg: None) -> dict:
                         did, src = MILEAGE_SOURCES[m.address]
                         try:
                             p = v.read_did(did)
-                            km = int.from_bytes(bytes(p[-3:]), "big") if len(p) >= 3 else None
+                            km = int.from_bytes(bytes(p[1:4]), "big") if len(p) >= 4 else None   # bytes 1..3
                             if km:
                                 r.setdefault("mileage", []).append((src, km))
                                 if m.address != "01":

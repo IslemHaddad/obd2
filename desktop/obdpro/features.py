@@ -7,8 +7,8 @@ from datetime import datetime
 
 from .store import Store
 
-RPM, SPEED, THROTTLE, COOLANT, IAT = 0x0C, 0x0D, 0x11, 0x05, 0x0F
-BACKGROUND_PIDS = [RPM, SPEED, THROTTLE, COOLANT, IAT]
+RPM, SPEED, THROTTLE, COOLANT, IAT, VOLTS = 0x0C, 0x0D, 0x11, 0x05, 0x0F, 0x42
+BACKGROUND_PIDS = [RPM, SPEED, THROTTLE, COOLANT, IAT, VOLTS]
 
 
 # ---------------------------------------------------------------- settings with defaults (all user-editable)

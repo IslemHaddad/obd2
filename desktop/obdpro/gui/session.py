@@ -250,7 +250,13 @@ class Session(QObject):
                     rpm = vals.get(F.RPM, rpm)
                     cycle += 1
                     engine_off = not rpm
-                    if engine_off or cycle % 25 == 1:          # fast voltage sampling while off → catch cranking dip
+                    if F.VOLTS in vals:                         # car's own voltage (accurate) when supported
+                        v = vals[F.VOLTS]
+                        self.last_volts = v
+                        if cycle % 10 == 1:
+                            self.battery.emit(v)
+                        self.batt.feed(v, rpm)
+                    elif engine_off or cycle % 25 == 1:        # fallback: adapter voltmeter (ATRV)
                         v = self.elm.battery_voltage()
                         if v is not None:
                             self.last_volts = v
