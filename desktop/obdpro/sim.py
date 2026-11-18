@@ -221,6 +221,8 @@ class SimTransport(Transport):
             did = int(c[2:6], 16)
             if self.session != 3:
                 return "7F2E7F"
+            if h in ("714", "773") and self.profile == "seat":
+                return "7F2E33"           # cluster / radio need the security login (as on the real car)
             data = [int(c[i:i + 2], 16) for i in range(6, len(c), 2)]
             if did == 0x0600:
                 self.coding[h] = data

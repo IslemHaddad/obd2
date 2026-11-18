@@ -16,6 +16,7 @@ from .gui.reportpage import ReportPage
 from .gui.history import HistoryPage, TripsPage
 from .gui.dash import DashPage
 from .gui.speaker import SpeakerPage
+from .gui.programming_page import ProgrammingPage
 from .store import Store
 
 
@@ -42,7 +43,7 @@ class Main(QMainWindow):
         sl.addWidget(brand)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        for t in ("⚡  Connect", "🎛  Dashboard", "◔  Live Data", "⚠  Diagnose", "🚗  Vehicle", "📋  Report", "🕘  Fault History", "🛣  Trips & Battery", "🏁  Power Run", "🔊  Speaker Test", "▤  Logs"):
+        for t in ("⚡  Connect", "🎛  Dashboard", "◔  Live Data", "⚠  Diagnose", "🚗  Vehicle", "📋  Report", "🕘  Fault History", "🛣  Trips & Battery", "🏁  Power Run", "🔊  Speaker Test", "🛠  Programming", "▤  Logs"):
             self.nav.addItem(t)
         sl.addWidget(self.nav, 1)
         self.conn = QLabel("  ● Offline")
@@ -52,7 +53,9 @@ class Main(QMainWindow):
         self.stack = QStackedWidget()
         self.pages = [ConnectPage(self.s), DashPage(self.s), LivePage(self.s), DiagnosePage(self.s), VehiclePage(self.s),
                       ReportPage(self.s), HistoryPage(self.s), TripsPage(self.s), PowerPage(self.s),
-                      SpeakerPage(self.s), LogsPage(self.s)]
+                      SpeakerPage(self.s), None, LogsPage(self.s)]
+        vp = next(p for p in self.pages if p.__class__.__name__ == "VehiclePage")
+        self.pages[self.pages.index(None)] = ProgrammingPage(self.s, lambda addr: vp.open_module(addr))
         for p in self.pages:
             self.stack.addWidget(p)
         h.addWidget(self.stack, 1)
