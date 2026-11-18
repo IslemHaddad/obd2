@@ -97,7 +97,8 @@ class ConnectPage(QWidget):
         # Demo
         lay.addWidget(C.card(C.row(C.label("Demo car (simulated, with faults)", "h2"), "stretch",
                                    C.button("Demo SEAT", slot=lambda: s.connect("sim", "Demo SEAT Leon")),
-                                   C.button("Demo Hyundai Grand i10", slot=lambda: s.connect("sim", "hyundai")))))
+                                   C.button("Demo Hyundai Grand i10", slot=lambda: s.connect("sim", "hyundai")),
+                                   C.button("Demo Renault Clio", slot=lambda: s.connect("sim", "renault")))))
         lay.addStretch(1)
         s.state_changed.connect(self.on_state)
         self.refresh_ports()

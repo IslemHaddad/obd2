@@ -35,7 +35,7 @@ def _clean(p: list[int]) -> str:
 def build(elm: ELM327, progress=lambda pct, msg: None, family: str = "vag") -> dict:
     from .hyundai import Hyundai
     o = OBD(elm)
-    v = Hyundai(elm) if family == "hyundai" else VAG(elm)
+    v = Hyundai(elm, family) if family in ("hyundai", "renault") else VAG(elm)
     r: dict = {"date": datetime.now().isoformat(timespec="seconds"), "adapter": elm.version,
                "protocol": elm.protocol_name, "modules": [], "notes": []}
     t0 = time.monotonic()
@@ -62,7 +62,7 @@ def build(elm: ELM327, progress=lambda pct, msg: None, family: str = "vag") -> d
         r["vag"] = v.supported
         if not v.supported:
             mods = []
-        elif family == "hyundai":
+        elif family in ("hyundai", "renault"):
             progress(12, "Searching for modules on the car")
             mods = v.discover()
         else:

@@ -28,14 +28,42 @@ KNOWN = {
 PROBE_RANGE = list(range(0x700, 0x7E8))         # 7DF (functional) and 7E8+ (responses) excluded below
 
 
-def module_for(req: str) -> Module:
-    name, cat, x, y = KNOWN.get(req, (f"Module {req}", "electronics", 0.5 + ((int(req, 16) * 37) % 50 - 25) / 100,
-                                      0.6 + ((int(req, 16) * 53) % 30) / 100))
-    return Module(req, name, req, f"{int(req, 16) + 8:03X}", cat, x, y)
+# Renault / Dacia (diag CAN 500k): physical request 7xx, response usually request + 0x20 (ECM keeps OBD +8).
+# Labels are best-effort; discovery decides what is really fitted.
+RENAULT = {
+    "7E0": ("Engine (UCE)", "powertrain", 0.50, 0.14),
+    "7E1": ("Automatic gearbox (BVA)", "powertrain", 0.50, 0.27),
+    "740": ("ABS / ESP", "chassis", 0.27, 0.20),
+    "742": ("Power steering (DAE)", "chassis", 0.66, 0.24),
+    "743": ("Instrument cluster (TdB)", "electronics", 0.33, 0.35),
+    "744": ("Climate control", "electronics", 0.50, 0.41),
+    "745": ("Body control (UCH)", "electronics", 0.20, 0.42),
+    "752": ("Airbag", "safety", 0.50, 0.50),
+    "74D": ("Parking sensors", "electronics", 0.50, 0.92),
+    "747": ("Radio / multimedia", "electronics", 0.50, 0.34),
+    "76D": ("Hands-free card / keyless", "electronics", 0.62, 0.45),
+}
+OFFSETS = {"hyundai": (8,), "renault": (0x20, 8)}
+
+
+def module_for(req: str, family: str = "hyundai", resp: str | None = None) -> Module:
+    table = RENAULT if family == "renault" else KNOWN
+    v = int(req, 16)
+    name, cat, x, y = table.get(req, (f"Module {req}", "electronics", 0.5 + ((v * 37) % 50 - 25) / 100,
+                                      0.6 + ((v * 53) % 30) / 100))
+    if resp is None:
+        off = 8 if (family != "renault" or req in ("7E0", "7E1")) else 0x20
+        resp = f"{v + off:03X}"
+    return Module(req, name, req, resp, cat, x, y)
 
 
 class Hyundai(VAG):
-    """Reuses VAG's channel handling (ATSH/ATCRA/flow-control); different discovery and DTC services."""
+    """Reuses VAG's channel handling (ATSH/ATCRA/flow-control); different discovery and DTC services.
+    Also used for Renault/Dacia (family="renault": responses on +0x20 as well as +8)."""
+
+    def __init__(self, elm, family: str = "hyundai"):
+        super().__init__(elm)
+        self.family = family
 
     @property
     def supported(self) -> bool:
@@ -55,7 +83,7 @@ class Hyundai(VAG):
                 for n, rid in enumerate(ids):
                     if progress and n % 8 == 0:
                         progress(n / len(ids), len(found))
-                    want = f"{rid + 8:03X}"
+                    wants = {f"{rid + o:03X}": o for o in OFFSETS.get(self.family, (8,))}
                     try:
                         self.elm.send(f"ATSH{rid:03X}", 1)
                     except ELMError:
@@ -65,8 +93,10 @@ class Hyundai(VAG):
                             lines = self.elm.send(probe, 0.4)
                         except ELMError:
                             continue
-                        if any(l.replace(" ", "").upper().startswith(want) for l in lines):
-                            found.append(module_for(f"{rid:03X}"))
+                        hit = next((h for l in lines for h in wants
+                                    if l.replace(" ", "").upper().startswith(h)), None)
+                        if hit:
+                            found.append(module_for(f"{rid:03X}", self.family, hit))
                             break
                     if found and found[-1].address == f"{rid:03X}":
                         try:                                  # return the module to its default session
@@ -115,12 +145,13 @@ class Hyundai(VAG):
         return None, in_ext
 
     def _kwp_faults(self):
-        for cmd in ("1800FF00", "1802FF00"):
+        # 18 = KWP readDTCByStatus (Hyundai/Kia); 17 FF00 = readStatusOfDTC used by older Renault ECUs
+        for cmd, pos in (("1800FF00", 0x58), ("1802FF00", 0x58), ("17FF00", 0x57)):
             try:
                 d = self.elm.request_uds(cmd, 2)
             except ELMError:
                 continue
-            r = _positive(d, 0x58)
+            r = _positive(d, pos)
             if r is not None and len(r) >= 2:
                 out = []
                 rec = r[2:]

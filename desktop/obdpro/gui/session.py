@@ -45,7 +45,7 @@ def _open(kind: str, arg):
         t = BLETransport(arg)
     else:
         from ..sim import SimTransport
-        t = SimTransport("hyundai" if arg == "hyundai" else "seat")
+        t = SimTransport(arg if arg in ("hyundai", "renault") else "seat")
     elm = ELM327(t)
     try:
         elm.initialize()
@@ -101,7 +101,7 @@ class Session(QObject):
         self.family = catalog.FAMILY.get(veh.get("brand", "seat"), "vag")
 
     def _tool(self):
-        return Hyundai(self.elm) if self.family == "hyundai" else VAG(self.elm)
+        return Hyundai(self.elm, self.family) if self.family in ("hyundai", "renault") else VAG(self.elm)
 
     def set_family(self, family: str):
         if family != self.family:

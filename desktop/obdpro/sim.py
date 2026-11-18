@@ -26,6 +26,13 @@ class SimTransport(Transport):
                      0x1000: bytes([0x00, 0x7B]), 0x10E0: (102371).to_bytes(4, "big"), 0x11BD: (3646).to_bytes(2, "big"),
                      0x1063: (3721).to_bytes(2, "big"), 0x1001: bytes([0x2E]), 0x02BD: bytes.fromhex("d9018fe300006ae30200")}
         self.routine_polls = 0
+        if profile == "renault":
+            self.uds_mods = {"7E0", "752", "745"}
+            self.kwp_mods = {"740", "743"}
+            self.present = self.uds_mods | self.kwp_mods
+            self.hy_faults = {"7E0": [], "752": [], "745": [(0x95, 0x02, 0x11, 0x09)]}
+            self.kwp_faults = {"740": [(0x50, 0x37, 0x60)], "743": []}
+            self.obd_dtcs = {"7E0": []}
         if profile == "hyundai":
             self.uds_mods = {"7E0", "7D1", "7D2", "7C6"}
             self.kwp_mods = {"7A0", "770", "7D4"}
@@ -55,7 +62,7 @@ class SimTransport(Transport):
     def _handle(self, c: str) -> str:
         if c.startswith("AT"):
             return self._at(c[2:])
-        if self.profile == "hyundai" and self.header != "7DF":
+        if self.profile in ("hyundai", "renault") and self.header != "7DF":
             return self._hyundai(c)
         if self.header == "7DF":
             return self._obd(c)
@@ -124,7 +131,7 @@ class SimTransport(Transport):
             self.obd_dtcs["7E0"] = []
             return "44"
         if c == "0902":
-            vin = ("MALA851CLJM123456" if self.profile == "hyundai" else "VSSZZZKLZMR123456").encode().hex().upper()
+            vin = {"hyundai": "MALA851CLJM123456", "renault": "VF1RJA00X62345678"}.get(self.profile, "VSSZZZKLZMR123456").encode().hex().upper()
             return "014\r0:490201" + vin[0:8] + "\r1:" + vin[8:22] + "\r2:" + vin[22:]
         if mode == "02":
             pid = int(c[2:4], 16)
@@ -136,9 +143,10 @@ class SimTransport(Transport):
         h = self.header
         if h not in self.present:
             return "NO DATA"
-        pre = f"{int(h, 16) + 8:03X}" if self.headers_on else ""
+        off = 0x20 if self.profile == "renault" and h not in ("7E0", "7E1") else 8
+        pre = f"{int(h, 16) + off:03X}" if self.headers_on else ""
         if c == "3E00":
-            return pre + ("027E00" if self.headers_on else "7E00")
+            return pre + "027E00" if self.headers_on else "7E00"
         if c in ("03", "07", "0A", "04") and h == "7E0":
             if c == "04":
                 self.obd_dtcs["7E0"] = []
@@ -159,9 +167,12 @@ class SimTransport(Transport):
         if h in self.kwp_mods:
             if c.startswith("19"):
                 return "7F1911"
-            if c == "1802FF00":
+            if c == "1802FF00" and self.profile != "renault":
                 recs = self.kwp_faults.get(h, [])
                 return f"58{len(recs):02X}" + "".join(f"{a:02X}{b:02X}{st:02X}" for a, b, st in recs)
+            if c == "17FF00" and self.profile == "renault":
+                recs = self.kwp_faults.get(h, [])
+                return f"57{len(recs):02X}" + "".join(f"{a:02X}{b:02X}{st:02X}" for a, b, st in recs)
             if c == "14FFFFFF":
                 return "7F1411"
             if c == "14FF00":

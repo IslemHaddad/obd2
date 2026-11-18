@@ -118,9 +118,9 @@ class VehiclePage(QWidget):
             self._fam = fam
             self.s.set_family(fam)
             self.reports = {}
-            if fam == "hyundai":
+            if fam in ("hyundai", "renault"):
                 from ..hyundai import module_for
-                self.modules = [module_for(a) for a in (self.s.store.get("hy_modules") or [])]
+                self.modules = [module_for(a, fam) for a in (self.s.store.get("hy_modules") or [])]
             else:
                 self.modules = list(MODULES)
             if hasattr(self, "table"):
@@ -140,7 +140,7 @@ class VehiclePage(QWidget):
         ok = self.s.connected and self.s.vag is not None and self.s.vag.supported
         self.scan_btn.setEnabled(ok)
         self.clear_btn.setEnabled(ok and any(r.faulty for r in self.reports.values()))
-        self.rediscover_btn.setVisible(self.s.family == "hyundai")
+        self.rediscover_btn.setVisible(self.s.family in ("hyundai", "renault"))
         self.rediscover_btn.setEnabled(ok)
         if self.s.connected and self.s.vag is not None and not self.s.vag.supported:
             self.note.setText("Module scan needs a CAN 11-bit car. Generic codes are on Diagnose.")
@@ -162,11 +162,11 @@ class VehiclePage(QWidget):
         from .. import features as F
 
         def work():
-            if self.s.family == "hyundai":
+            if self.s.family in ("hyundai", "renault"):
                 from ..hyundai import module_for
                 known = (self.s.store.get("hy_modules_by_vin", {}) or {}).get(self.s.vin or "")
                 if known and not self._force_discover:
-                    found = [module_for(a) for a in known]
+                    found = [module_for(a, self.s.family) for a in known]
                 else:
                     found = vag.discover(lambda f, n: disc.step.emit(int(f * 100), n))
                     byvin = self.s.store.get("hy_modules_by_vin", {}) or {}
