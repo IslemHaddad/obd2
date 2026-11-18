@@ -60,6 +60,7 @@ def _index_after(d: list[int], mode: int, pid: int):
 class OBD:
     def __init__(self, elm: ELM327):
         self.elm = elm
+        self.single_ecu = False        # set after discovery when only one ECU answers mode 01
 
     # ---------- PIDs ----------
     def supported_pids(self) -> set[int]:
@@ -87,8 +88,11 @@ class OBD:
         chunk = 6 if self.elm.is_can else 1
         for k in range(0, len(ids), chunk):
             group = ids[k:k + chunk]
+            cmd = "01" + "".join(f"{p:02X}" for p in group)
+            if self.elm.profile.fast and self.single_ecu:
+                cmd += "1"            # STN: return after the first ECU answers instead of waiting for timeout
             try:
-                d = self.elm.request("01" + "".join(f"{p:02X}" for p in group))
+                d = self.elm.request(cmd)
             except ELMError:
                 continue
             i = 0

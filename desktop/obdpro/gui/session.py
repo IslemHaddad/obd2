@@ -20,6 +20,7 @@ from ..transport import BLETransport, SerialTransport, TCPTransport
 from ..vag import MODULE_BY_ADDR, VAG, numeric
 from ..hyundai import Hyundai
 from .. import catalog
+from .. import adapters as AD
 from .common import run_bg
 
 DEFAULT_TILES = [
@@ -52,7 +53,13 @@ def _open(kind: str, arg):
         t.close()
         raise
     obd = OBD(elm)
-    return elm, obd, obd.supported_pids()
+    sup = obd.supported_pids()
+    if elm.profile.fast:
+        try:
+            obd.single_ecu = len(obd.discover_ecus()) == 1
+        except ELMError:
+            pass
+    return elm, obd, sup
 
 
 class Session(QObject):
@@ -88,6 +95,7 @@ class Session(QObject):
         self.batt = F.BatteryMonitor(store)
         self.alerts = F.AlertMonitor(store, lambda lvl, txt: self.alert.emit(lvl, txt))
         self.last_volts: float | None = None
+        self.adapter: dict | None = None
         self._known_faults: set[str] | None = None
         veh = store.get("vehicle", {}) or {}
         self.family = catalog.FAMILY.get(veh.get("brand", "seat"), "vag")
@@ -107,6 +115,10 @@ class Session(QObject):
         lc = F.setting(self.store, "last_conn")
         return tuple(lc) if lc else None
 
+    def connect_saved(self, rec: dict):
+        arg = rec["arg"]
+        self.connect(rec["kind"], tuple(arg) if isinstance(arg, list) else arg)
+
     def connect_last(self):
         lc = self.last_connection
         if lc:
@@ -122,6 +134,9 @@ class Session(QObject):
             self.elm, self.obd, self.supported = r
             self.vag = self._tool()
             F.set_setting(self.store, "last_conn", [kind, list(arg) if isinstance(arg, tuple) else arg])
+            name = {"ble": "Bluetooth LE adapter", "serial": f"Serial {arg[0] if isinstance(arg, (list, tuple)) else arg}",
+                    "tcp": "Wi-Fi adapter", "sim": "Demo"}.get(kind, kind)
+            self.adapter = AD.remember(self.store, kind, arg, name, self.elm.profile)
             self._set("connected", f"{self.elm.version} · {self.elm.protocol_name}")
             self._start_poll()
             run_bg(self._read_info, self.info.emit, lambda _m: None)
@@ -269,8 +284,15 @@ class Session(QObject):
                         if cycle % 10 == 1:
                             self.battery.emit(v)
                         self.batt.feed(v, rpm)
-                    elif engine_off or cycle % 25 == 1:        # fallback: adapter voltmeter (ATRV)
+                        if cycle % 50 == 5 and self.adapter:   # learn this adapter's voltmeter error
+                            av = self.elm.battery_voltage()
+                            if av is not None:
+                                AD.learn_voltage(self.store, self.adapter["key"], av, v)
+                    elif engine_off or cycle % 25 == 1:        # fallback: adapter voltmeter, corrected if learned
                         v = self.elm.battery_voltage()
+                        off = (AD.get(self.store, self.adapter["key"]) or {}).get("volt_offset") if self.adapter else None
+                        if v is not None and off is not None:
+                            v -= off
                         if v is not None:
                             self.last_volts = v
                             self.battery.emit(v)

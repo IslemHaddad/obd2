@@ -49,6 +49,19 @@ class ConnectPage(QWidget):
                              C.row(self.auto, self.recon, "stretch")))
         self._update_last()
 
+        # My adapters
+        self.my = QListWidget()
+        self.my.setFixedHeight(120)
+        self.my.itemDoubleClicked.connect(lambda it: s.connect_saved(it.data(Qt.UserRole)))
+        rename = C.button("Rename", slot=self._rename_adapter)
+        forget = C.button("Forget", slot=self._forget_adapter)
+        go_my = C.button("Connect", "primary", lambda: self.my.currentItem() and s.connect_saved(
+            self.my.currentItem().data(Qt.UserRole)))
+        lay.addWidget(C.card(C.row(C.label("My adapters", "h2"), "stretch", rename, forget, go_my),
+                             C.label("Every adapter you've used, with its chip type and the voltage correction the app "
+                                     "learned for it. Double-click to connect.", "muted", True), self.my))
+        self._fill_adapters()
+
         # USB / serial / Bluetooth classic
         self.ports = QComboBox()
         self.ports.setMinimumWidth(320)
@@ -88,6 +101,39 @@ class ConnectPage(QWidget):
         lay.addStretch(1)
         s.state_changed.connect(self.on_state)
         self.refresh_ports()
+
+    def _fill_adapters(self):
+        from .. import adapters as AD
+        self.my.clear()
+        for a in AD.all_adapters(self.s.store):
+            off = a.get("volt_offset")
+            extra = f" · voltmeter {off:+.1f} V (corrected)" if off is not None and abs(off) >= 0.2 else ""
+            it = QListWidgetItem(f"{a['name']}  —  {a['chip']}{extra}\n      {a['summary']}")
+            it.setData(Qt.UserRole, a)
+            self.my.addItem(it)
+
+    def _rename_adapter(self):
+        from PySide6.QtWidgets import QInputDialog
+        from .. import adapters as AD
+        it = self.my.currentItem()
+        if not it:
+            return
+        a = it.data(Qt.UserRole)
+        name, ok = QInputDialog.getText(self, "Rename adapter", "Name:", text=a["name"])
+        if ok and name.strip():
+            items = self.s.store.get("adapters") or []
+            for x in items:
+                if x["key"] == a["key"]:
+                    x["name"] = name.strip()
+            self.s.store.set("adapters", items)
+            self._fill_adapters()
+
+    def _forget_adapter(self):
+        from .. import adapters as AD
+        it = self.my.currentItem()
+        if it:
+            AD.forget(self.s.store, it.data(Qt.UserRole)["key"])
+            self._fill_adapters()
 
     def _update_last(self):
         lc = self.s.last_connection
@@ -159,6 +205,10 @@ class ConnectPage(QWidget):
         self.detail.setText(detail)
         self.disc.setVisible(state in ("connected", "connecting", "reconnecting"))
         self._update_last()
+        if state == "connected":
+            self._fill_adapters()
+            if self.s.elm:
+                self.detail.setText(f"{detail}\nAdapter: {self.s.elm.profile.chip} — {self.s.elm.profile.summary}")
 
 
 # =================================================================== Live

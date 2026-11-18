@@ -73,6 +73,33 @@ class TrafficLog:
 TRAFFIC = TrafficLog()
 
 
+class AdapterProfile:
+    """What kind of adapter this is, and which workarounds it needs."""
+
+    def __init__(self, ati: str = "", sti: str = "", device: str = ""):
+        self.ati, self.sti, self.device = ati, sti, device
+        a = ati.upper()
+        self.is_stn = bool(sti)                                   # OBDLink / STN-based (genuine, fast)
+        # Elm Electronics never released v1.5 / v2.1 firmware for sale → those strings mean a clone.
+        self.is_clone = not self.is_stn and (any(v in a for v in ("V1.5", "V2.1", "V2.2", "V2.3")) or
+                                             not a.startswith("ELM327"))
+        self.fast = self.is_stn                                   # response-count hint + shorter waits
+
+    @property
+    def chip(self) -> str:
+        if self.is_stn:
+            return f"{self.sti} (genuine STN)"
+        return f"{self.ati} ({'clone' if self.is_clone else 'ELM327'})"
+
+    @property
+    def summary(self) -> str:
+        if self.is_stn:
+            return "Genuine STN chip: fast mode, long replies OK"
+        if self.is_clone:
+            return "Clone chip: reply re-sync, short fault lists, busy-retry and voltage correction enabled"
+        return "ELM327: standard mode"
+
+
 class ELM327:
     def __init__(self, transport: Transport):
         self.t = transport
@@ -80,6 +107,7 @@ class ELM327:
         self.protocol = 0
         self.is_can = True
         self.version = ""
+        self.profile = AdapterProfile()
         TRAFFIC.write(f"=== session start ({transport.__class__.__name__}) ===")
 
     @property
@@ -168,6 +196,17 @@ class ELM327:
                 self.version = (self.send("ATI") or [""])[0]
             except ELMError:
                 pass
+            sti = dev = ""
+            try:
+                sti = (self.send("STI", 1) or [""])[0]           # only STN chips understand ST commands
+            except ELMError:
+                pass
+            try:
+                dev = (self.send("AT@1", 1) or [""])[0]
+            except ELMError:
+                pass
+            self.profile = AdapterProfile(self.version, sti, dev)
+            TRAFFIC.write(f"=== adapter: {self.profile.chip} · {self.profile.summary} ===")
             try:
                 self.send("0100", 12)
             except ELMError as e:
