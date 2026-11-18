@@ -59,6 +59,17 @@ jobs:
           name: build-log
           path: build.log
 
+      - name: Publish compile errors (readable without login)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "Build ${BUILD} failed at ${GITHUB_SHA}"; echo '```';
+            grep -E "error:|warning: unreachable|fatal" build.log | sed "s#${GITHUB_WORKSPACE}/##" | sort -u | head -120;
+            echo '```'; } > errors.md || true
+          gh release delete ci-errors --yes --cleanup-tag 2>/dev/null || true
+          gh release create ci-errors --prerelease --latest=false --title "CI errors" --notes-file errors.md --target "$GITHUB_SHA"
+
       - name: Archive & upload to TestFlight
         if: github.ref == 'refs/heads/main' && env.ASC_KEY_ID != ''
         run: |

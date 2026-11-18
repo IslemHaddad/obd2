@@ -14,7 +14,13 @@ struct VehicleView: View {
                 VStack(spacing: 16) {
                     header
                     if let v = s.vehicle {
-                        CarDiagram(vehicle: v, reports: s.vagReports) { r in detail = r }
+                        if let p = s.vagScanProgress {
+                            ScanShowcase(vehicle: v, progress: s.discoverProgress?.0 ?? p, status: scanStatus)
+                                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        } else {
+                            CarGallery(vehicle: v)
+                        }
+                        CarDiagram(vehicle: v, modules: s.vagModules, reports: s.vagReports) { r in detail = r }
                             .frame(height: 440)
                             .padding(.horizontal, 24)
                         legend
@@ -47,6 +53,13 @@ struct VehicleView: View {
             } message: { Text(error ?? "") }
             .refreshable { await s.loadInfo() }
         }
+    }
+
+    private var scanStatus: String {
+        if let d = s.discoverProgress { return "Searching for modules on the car… \(d.1) found" }
+        let done = s.vagReports.count, total = max(s.vagModules.count, 1)
+        if let last = s.vagReports.last { return "Scanned \(done)/\(total) · \(last.module.name)" }
+        return "Starting scan…"
     }
 
     private var backdrop: some View {
@@ -86,10 +99,6 @@ struct VehicleView: View {
 
     private var scanControls: some View {
         VStack(spacing: 10) {
-            if let p = s.vagScanProgress {
-                ProgressView(value: p) { Text("Scanning modules…").font(.caption) }
-                    .padding(.horizontal, 20)
-            }
             HStack(spacing: 12) {
                 Button { run { await s.scanVAG() } } label: {
                     Label("Full Scan", systemImage: "waveform.badge.magnifyingglass").frame(maxWidth: .infinity)
@@ -104,8 +113,15 @@ struct VehicleView: View {
             }
             .controlSize(.large)
             .padding(.horizontal, 20)
+            if s.family == .hyundai {
+                Button { run { await s.scanVAG(rediscover: true) } } label: {
+                    Label("Re-discover modules (≈2 min)", systemImage: "dot.radiowaves.left.and.right")
+                }
+                .font(.caption)
+                .disabled(busy || s.state != .connected)
+            }
             if s.state == .connected, !s.vagSupported {
-                Text("Module scan needs a CAN 11-bit car (2008+ MQB/MLB/MEB). Generic codes are on Diagnose.")
+                Text("Module scan needs a CAN 11-bit car. Generic codes are on Diagnose.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal)
             }
         }
@@ -178,6 +194,7 @@ struct LegendDot: View {
 
 struct CarDiagram: View {
     let vehicle: SelectedVehicle
+    var modules: [VAGModule] = VAGModule.all
     let reports: [VAGReport]
     let onTap: (VAGReport) -> Void
 
@@ -191,7 +208,7 @@ struct CarDiagram: View {
                 CarTopView(color: vehicle.brand.color, body: vehicle.model.body)
                     .frame(width: w, height: h)
                     .offset(x: origin.x, y: origin.y)
-                ForEach(VAGModule.all) { m in
+                ForEach(modules) { m in
                     let r = reports.first { $0.module == m }
                     if r?.present != false {
                         Hotspot(module: m, report: r)
@@ -343,8 +360,10 @@ struct ModuleDetail: View {
                     }
                     Section("Tools") {
                         NavigationLink { ModuleLiveView(module: r.module) } label: { Label("Live Data", systemImage: "waveform.path.ecg") }
-                        NavigationLink { ModuleCodingView(module: r.module) } label: { Label("Coding", systemImage: "slider.horizontal.below.square.and.square.filled") }
-                        NavigationLink { AdaptationsView(module: r.module) } label: { Label("Adaptations", systemImage: "dial.low") }
+                        if s.family == .vag {
+                            NavigationLink { ModuleCodingView(module: r.module) } label: { Label("Coding", systemImage: "slider.horizontal.below.square.and.square.filled") }
+                            NavigationLink { AdaptationsView(module: r.module) } label: { Label("Adaptations", systemImage: "dial.low") }
+                        }
                         NavigationLink { BasicSettingsView(module: r.module) } label: { Label("Basic Settings", systemImage: "gearshape.arrow.triangle.2.circlepath") }
                         NavigationLink { OutputTestsView(module: r.module) } label: { Label("Output Tests", systemImage: "play.circle") }
                         NavigationLink { ModuleIdentView(module: r.module) } label: { Label("Identification", systemImage: "info.circle") }

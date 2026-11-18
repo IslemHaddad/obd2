@@ -34,6 +34,16 @@ final class BLEScanner: NSObject, CBCentralManagerDelegate {
 
     func stop() { central.stopScan(); isScanning = false }
 
+    /// Reconnect without scanning: CoreBluetooth remembers peripherals it has seen.
+    func transport(forID id: UUID) -> BLETransport? {
+        let p = peripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
+        guard let p else { return nil }
+        peripherals[id] = p
+        let t = BLETransport(scanner: self, peripheral: p)
+        activeTransport = t
+        return t
+    }
+
     func transport(for device: BLEDevice) -> BLETransport? {
         guard let p = peripherals[device.id] else { return nil }
         let t = BLETransport(scanner: self, peripheral: p)

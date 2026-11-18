@@ -18,8 +18,13 @@ struct CarModel: Identifiable, Hashable, Codable {
 
 enum VAGBrand: String, CaseIterable, Identifiable, Codable {
     case seat = "SEAT", cupra = "CUPRA", vw = "Volkswagen", audi = "Audi", skoda = "Škoda",
-         porsche = "Porsche", bentley = "Bentley", lamborghini = "Lamborghini"
+         porsche = "Porsche", bentley = "Bentley", lamborghini = "Lamborghini",
+         hyundai = "Hyundai", kia = "Kia"
     var id: String { rawValue }
+
+    enum Family { case vag, hyundai }
+    /// Which diagnostic scheme the brand uses.
+    var family: Family { self == .hyundai || self == .kia ? .hyundai : .vag }
 
     var color: Color {
         switch self {
@@ -31,6 +36,8 @@ enum VAGBrand: String, CaseIterable, Identifiable, Codable {
         case .porsche: Color(red: 0.8, green: 0.6, blue: 0.2)
         case .bentley: Color(red: 0.1, green: 0.35, blue: 0.25)
         case .lamborghini: Color(red: 0.95, green: 0.75, blue: 0.1)
+        case .hyundai: Color(red: 0.12, green: 0.44, blue: 0.70)
+        case .kia: Color(red: 0.73, green: 0.09, blue: 0.17)
         }
     }
 
@@ -61,6 +68,12 @@ enum VAGBrand: String, CaseIterable, Identifiable, Codable {
                                m("Macan", .suv), m("Cayenne", .suv)]
         case .bentley: return [m("Continental GT", .coupe), m("Flying Spur", .sedan), m("Bentayga", .suv)]
         case .lamborghini: return [m("Huracán", .coupe), m("Revuelto", .coupe), m("Urus", .suv)]
+        case .hyundai: return [m("Grand i10", .hatch), m("i10", .hatch), m("Grand i10 Nios", .hatch),
+                               m("Grand i10 Sedan / Xcent", .sedan), m("i20", .hatch), m("Accent", .sedan),
+                               m("Elantra", .sedan), m("Venue", .suv), m("Creta", .suv), m("Kona", .suv),
+                               m("Tucson", .suv), m("Santa Fe", .suv), m("Ioniq", .hatch), m("Ioniq 5", .suv)]
+        case .kia: return [m("Picanto", .hatch), m("Rio", .hatch), m("Ceed", .hatch), m("Sonet", .suv),
+                           m("Seltos", .suv), m("Sportage", .suv), m("Sorento", .suv), m("Niro", .suv), m("EV6", .suv)]
         }
     }
 
@@ -75,6 +88,8 @@ enum VAGBrand: String, CaseIterable, Identifiable, Codable {
         case "WP0", "WP1": return .porsche
         case "SCB", "SJA": return .bentley
         case "ZHW": return .lamborghini
+        case "KMH", "MAL", "NLH", "TMA", "5NP", "5NM", "KM8", "MAJ": return .hyundai
+        case "KNA", "KNC", "KND", "U5Y", "U6Y", "MZB", "5XY", "3KP": return .kia
         default: return nil
         }
     }
@@ -162,6 +177,36 @@ struct VAGFault: Identifiable, Hashable {
         0x64: "Signal plausibility failure", 0x87: "Missing message", 0x88: "Bus off",
         0x96: "Component internal failure", 0x98: "Over temperature",
     ]
+}
+
+// MARK: - Hyundai / Kia modules (11-bit CAN, response = request + 8). Names are best-effort labels;
+// only modules that answer on the car are used (discovered at scan time).
+extension VAGModule {
+    static let hyundaiKnown: [String: (String, Category, CGPoint, String)] = [
+        "7E0": ("Engine (ECU)", .powertrain, .init(x: 0.50, y: 0.14), "engine.combustion"),
+        "7E1": ("Transmission (TCU)", .powertrain, .init(x: 0.50, y: 0.27), "gearshape.2"),
+        "7D1": ("ABS / ESC", .chassis, .init(x: 0.27, y: 0.20), "exclamationmark.brakesignal"),
+        "7D2": ("Airbag (SRS)", .safety, .init(x: 0.50, y: 0.50), "airbag"),
+        "7D4": ("Power steering (MDPS)", .chassis, .init(x: 0.66, y: 0.24), "steeringwheel"),
+        "7C6": ("Instrument cluster", .electronics, .init(x: 0.33, y: 0.35), "gauge.open.with.lines.needle.33percent"),
+        "7A0": ("Body control (BCM)", .electronics, .init(x: 0.20, y: 0.42), "bolt.car"),
+        "770": ("Integrated body unit (IPM)", .electronics, .init(x: 0.22, y: 0.46), "cpu"),
+        "7B3": ("Air conditioning", .electronics, .init(x: 0.50, y: 0.41), "fan"),
+        "7C4": ("Smart key / immobilizer", .electronics, .init(x: 0.62, y: 0.45), "key"),
+        "7A5": ("Tyre pressure (TPMS)", .chassis, .init(x: 0.50, y: 0.80), "tirepressure"),
+        "780": ("Audio / head unit", .electronics, .init(x: 0.50, y: 0.34), "music.note.tv"),
+    ]
+
+    static func hyundai(_ req: String) -> VAGModule {
+        let v = Int(req, radix: 16) ?? 0x700
+        let resp = String(format: "%03X", v + 8)
+        if let k = hyundaiKnown[req] {
+            return VAGModule(address: req, name: k.0, request: req, response: resp, category: k.1, spot: k.2, icon: k.3)
+        }
+        let spot = CGPoint(x: 0.3 + Double((v * 37) % 40) / 100, y: 0.55 + Double((v * 53) % 30) / 100)
+        return VAGModule(address: req, name: "Module \(req)", request: req, response: resp, category: .electronics,
+                         spot: spot, icon: "cpu")
+    }
 }
 
 struct VAGReport: Identifiable {

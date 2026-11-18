@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class VehicleSession {
-    enum State: Equatable { case idle, connecting(String), connected, failed(String) }
+    enum State: Equatable { case idle, connecting(String), connected, reconnecting(Int), failed(String) }
 
     var state: State = .idle
     var adapterVersion = ""
@@ -39,11 +39,32 @@ final class VehicleSession {
     private var knownECUs: [ECU] = []
 
     // VW Group
-    var vehicle: SelectedVehicle? = SelectedVehicle.load() { didSet { SelectedVehicle.save(vehicle) } }
+    var vehicle: SelectedVehicle? = SelectedVehicle.load() {
+        didSet {
+            SelectedVehicle.save(vehicle)
+            if oldValue?.brand.family != vehicle?.brand.family { refreshModuleList() }
+        }
+    }
     var vagReports = [VAGReport]()
     var vagScanProgress: Double?            // 0…1 while scanning
     var vagSupported = false
     var vagFaulty: [VAGReport] { vagReports.filter(\.faulty) }
+    /// Modules for the current brand: VW Group fixed table, Hyundai/Kia discovered on the car.
+    var vagModules: [VAGModule] = VAGModule.all
+    var discoverProgress: (Double, Int)?
+    var family: VAGBrand.Family { vehicle?.brand.family ?? .vag }
+
+    // Extras (dashboard, alerts, history, report)
+    var oilTemp: Double?
+    var wantOil = false
+    struct SpeedSample { let t: Double; let v: Double }
+    var speedTrace: [SpeedSample] = []      // for live power (acceleration method)
+    var alert: String?
+    var faultHistory: [FaultEvent] = FaultEvent.load() { didSet { FaultEvent.save(faultHistory) } }
+    var report: VehicleReport?
+    var reportProgress: (Double, String)?
+    var userDisconnected = false
+    var knownFaultCodes: Set<String>?
 
     // VAG live data & coding
     var measurements: [Measurement] = VehicleSession.seededMeasurements() { didSet { Measurement.save(measurements) } }
@@ -103,7 +124,7 @@ final class VehicleSession {
     let scanner = BLEScanner()
     private var transport: OBDTransport?
     private var elm: ELM327?
-    private var service: OBDService? { elm.map(OBDService.init) }
+    var service: OBDService? { elm.map(OBDService.init) }
     private var pollTask: Task<Void, Never>?
     private let historyLimit = 120
 
@@ -112,22 +133,41 @@ final class VehicleSession {
     // MARK: Connection
     func connectBLE(_ device: BLEDevice) {
         guard let t = scanner.transport(for: device) else { return }
+        LastAdapter.save(.ble(device.id, device.name))
         connect(t, label: device.name)
     }
 
     func connectWiFi(host: String, port: UInt16) {
+        LastAdapter.save(.wifi(host, port))
         connect(WiFiTransport(host: host, port: port), label: "\(host):\(port)")
     }
 
-    private func connect(_ t: OBDTransport, label: String) {
-        disconnect()
-        state = .connecting(label)
+    /// Reconnects to the adapter used last time (BLE by peripheral id, or Wi-Fi host).
+    func connectLast() {
+        switch LastAdapter.load() {
+        case .ble(let id, let name)?:
+            guard let t = scanner.transport(forID: id) else { state = .failed("\(name) not found — scan once"); return }
+            connect(t, label: name)
+        case .wifi(let h, let p)?:
+            connect(WiFiTransport(host: h, port: p), label: "\(h):\(p)")
+        case nil: break
+        }
+    }
+
+    private func connect(_ t: OBDTransport, label: String, attempt: Int = 0) {
+        teardown()
+        userDisconnected = false
+        state = attempt > 0 ? .reconnecting(attempt) : .connecting(label)
         transport = t
         t.onDisconnect = { [weak self] err in
             Task { @MainActor in
                 guard let self, self.transport === t else { return }
                 self.teardown()
-                self.state = .failed(err?.localizedDescription ?? "Disconnected")
+                if !self.userDisconnected && UserDefaults.standard.object(forKey: "autoReconnect") as? Bool ?? true {
+                    self.autoReconnect(after: err)
+                } else {
+                    self.state = .failed(err?.localizedDescription ?? "Disconnected")
+                }
             }
         }
         Task {
@@ -144,12 +184,30 @@ final class VehicleSession {
                 Task { await loadInfo() }
             } catch {
                 teardown()
-                state = .failed(error.localizedDescription)
+                if attempt > 0 && attempt < 40 && !userDisconnected {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    if !userDisconnected { reconnect(attempt: attempt + 1) }
+                } else {
+                    state = .failed(error.localizedDescription)
+                }
             }
         }
     }
 
+    private func autoReconnect(after err: Error?) { reconnect(attempt: 1) }
+
+    private func reconnect(attempt: Int) {
+        switch LastAdapter.load() {
+        case .ble(let id, let name)?:
+            if let t = scanner.transport(forID: id) { connect(t, label: name, attempt: attempt) }
+            else { state = .failed("Link lost") }
+        case .wifi(let h, let p)?: connect(WiFiTransport(host: h, port: p), label: "\(h):\(p)", attempt: attempt)
+        case nil: state = .failed("Link lost")
+        }
+    }
+
     func disconnect() {
+        userDisconnected = true
         teardown()
         state = .idle
     }
@@ -165,6 +223,8 @@ final class VehicleSession {
         modules = []
         vagReports = []
         vagScanProgress = nil
+        discoverProgress = nil
+        knownFaultCodes = nil
     }
 
     // MARK: Live polling — runs flat-out, one batched request per cycle.
@@ -176,12 +236,26 @@ final class VehicleSession {
             var cycle = 0
             while !Task.isCancelled {
                 guard let self, let svc = self.service else { return }
-                let pids = self.selected.compactMap { PIDs.byID[$0] }
+                var ids = self.selected
+                for extra: UInt8 in [0x05, 0x0C, 0x0D, 0x11, 0x42, 0x62, 0x63] where !ids.contains(extra) &&
+                    (self.supported.isEmpty || self.supported.contains(extra)) { ids.append(extra) }
+                let pids = ids.compactMap { PIDs.byID[$0] }
                 if pids.isEmpty { try? await Task.sleep(nanoseconds: 200_000_000); continue }
                 let r = await svc.read(pids)
                 self.apply(r)
+                if let v = r[0x0D] {
+                    self.speedTrace.append(SpeedSample(t: Date().timeIntervalSince1970, v: v))
+                    if self.speedTrace.count > 100 { self.speedTrace.removeFirst(self.speedTrace.count - 100) }
+                }
                 cycle += 1
-                if cycle % 25 == 0 { self.batteryVoltage = await svc.batteryVoltage() }
+                // Car's own module voltage (PID 42) is accurate; cheap adapters' ATRV can read volts off.
+                if let v = r[0x42] { self.batteryVoltage = v }
+                else if cycle % 25 == 0 { self.batteryVoltage = await svc.batteryVoltage() }
+                if self.wantOil, self.family == .vag, self.vagSupported, cycle % 8 == 0 {
+                    self.oilTemp = await svc.readOilTemp()
+                }
+                if cycle % 600 == 0 { await self.watchFaults(svc) }
+                self.checkAlerts()
                 frames += 1
                 let dt = Date().timeIntervalSince(windowStart)
                 if dt >= 1 { self.refreshHz = Double(frames) / dt; frames = 0; windowStart = Date() }
@@ -207,7 +281,7 @@ final class VehicleSession {
     }
 
     // MARK: Diagnostics — pause polling so the bus is ours.
-    private func exclusive<T>(_ work: (OBDService) async throws -> T) async rethrows -> T? {
+    func exclusive<T>(_ work: (OBDService) async throws -> T) async rethrows -> T? {
         guard let svc = service else { return nil }
         let running = pollTask
         pollTask = nil
@@ -228,6 +302,7 @@ final class VehicleSession {
             if let v = vin, let b = VAGBrand.from(vin: v), vehicle?.brand != b {
                 vehicle = SelectedVehicle(brand: b, model: b.models[0], year: nil)
             }
+            refreshModuleList()
             calID = await svc.calibrationID()
             ecuName = await svc.ecuName()
         }
@@ -256,15 +331,32 @@ final class VehicleSession {
     }
 
     // MARK: VW Group full scan (UDS per module)
-    func scanVAG() async {
+    func scanVAG(rediscover: Bool = false) async {
         await exclusive { svc in
             vagSupported = await svc.supportsVAG
             guard vagSupported else { return }
+            if family == .hyundai {
+                let key = vin ?? ""
+                if rediscover || HyundaiModuleMemory.load(key).isEmpty {
+                    vagScanProgress = 0
+                    discoverProgress = (0, 0)
+                    let found = await svc.hyundaiDiscover { p, n in await MainActor.run { self.discoverProgress = (p, n) } }
+                    HyundaiModuleMemory.save(key, found.map(\.address))
+                    discoverProgress = nil
+                }
+                vagModules = HyundaiModuleMemory.load(key).map(VAGModule.hyundai)
+            } else {
+                vagModules = VAGModule.all
+            }
             var out = [VAGReport]()
-            let all = VAGModule.all
+            let all = vagModules
             for (i, m) in all.enumerated() {
-                vagScanProgress = Double(i) / Double(all.count)
-                out.append(await svc.vagReport(m) ?? VAGReport(module: m, present: false, faults: []))
+                vagScanProgress = Double(i) / Double(max(all.count, 1))
+                let r: VAGReport
+                if family == .hyundai { r = await svc.hyundaiReport(m) }
+                else { r = await svc.vagReport(m) ?? VAGReport(module: m, present: false, faults: []) }
+                if r.present { recordFaults(module: m, faults: r.faults) }
+                out.append(r)
                 vagReports = out
             }
             vagScanProgress = nil
@@ -274,8 +366,13 @@ final class VehicleSession {
     /// Clears one VAG module only, then re-reads that module.
     func clearVAG(_ m: VAGModule) async throws {
         try await exclusive { svc in
-            try await svc.vagClear(m)
-            if let r = await svc.vagReport(m), let i = vagReports.firstIndex(where: { $0.module == m }) { vagReports[i] = r }
+            if family == .hyundai { try await svc.hyundaiClear(m) } else { try await svc.vagClear(m) }
+            recordClear(module: m)
+            let r = family == .hyundai ? await svc.hyundaiReport(m) : await svc.vagReport(m)
+            if let r, let i = vagReports.firstIndex(where: { $0.module == m }) {
+                vagReports[i] = r
+                recordFaults(module: m, faults: r.faults)
+            }
         }
     }
 
@@ -329,7 +426,10 @@ final class VehicleSession {
     }
 
     func readIdentification(_ m: VAGModule) async -> [(String, String)] {
-        (await exclusive { svc in
+        if family == .hyundai {
+            return (await exclusive { svc in await svc.hyundaiIdentification(m) }) ?? []
+        }
+        return (await exclusive { svc in
             await svc.vagOpen(m)
             var out = [(String, String)]()
             for (did, name) in StandardDID.all {
