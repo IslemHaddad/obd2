@@ -4,11 +4,19 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
+    env:
+      BUILD: ${{ github.run_number }}
+      VERSION: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
@@ -25,23 +33,80 @@ jobs:
           xcodebuild -project OBDPro.xcodeproj -scheme OBDPro -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath build \
+            CURRENT_PROJECT_VERSION="$BUILD" MARKETING_VERSION="$VERSION" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|BUILD" || true
+            build 2>&1 | tee build.log | grep -E "error:|BUILD" || true
           test -d build/Build/Products/Release-iphoneos/OBDPro.app
 
       - name: Package IPA
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/OBDPro.app Payload/
-          zip -qr OBDPro-unsigned.ipa Payload
+          zip -qr OBDPro.ipa Payload
 
       - uses: actions/upload-artifact@v4
         with:
-          name: OBDPro-unsigned-ipa
-          path: OBDPro-unsigned.ipa
+          name: OBDPro-ipa
+          path: OBDPro.ipa
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: build-log
           path: build.log
+
+      - name: Release notes
+        if: github.ref == 'refs/heads/main'
+        run: |
+          PREV=$(git tag --list 'build-*' --sort=-v:refname | head -1)
+          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          git log --no-merges --format='- %s' $RANGE | grep -v '^- *$' | head -50 > notes.md
+          [ -s notes.md ] || echo "- Maintenance build" > notes.md
+          cat notes.md
+
+      - name: AltStore source
+        if: github.ref == 'refs/heads/main'
+        run: |
+          python3 - <<'PY'
+          import json, os, datetime
+          repo = os.environ["GITHUB_REPOSITORY"]
+          build, version = os.environ["BUILD"], os.environ["VERSION"]
+          src = {
+            "name": "OBD Pro",
+            "identifier": "com.obdpro.source",
+            "sourceURL": f"https://github.com/{repo}/releases/latest/download/altstore-source.json",
+            "apps": [{
+              "name": "OBD Pro",
+              "bundleIdentifier": "com.obdpro.app",
+              "developerName": repo.split("/")[0],
+              "subtitle": "OBD2 & VW Group diagnostics",
+              "localizedDescription": "Live data, fault codes, coding, adaptations, output tests and basic settings.",
+              "iconURL": f"https://raw.githubusercontent.com/{repo}/main/icon.png",
+              "versions": [{
+                "version": version,
+                "buildVersion": build,
+                "date": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "localizedDescription": open("notes.md").read(),
+                "downloadURL": f"https://github.com/{repo}/releases/download/build-{build}/OBDPro.ipa",
+                "size": os.path.getsize("OBDPro.ipa"),
+                "minOSVersion": "17.0"
+              }],
+              "appPermissions": {"entitlements": [], "privacy": {
+                "NSBluetoothAlwaysUsageDescription": "Connect to your OBD2 Bluetooth LE adapter.",
+                "NSLocalNetworkUsageDescription": "Connect to your OBD2 Wi-Fi adapter."}}
+            }],
+            "news": []
+          }
+          json.dump(src, open("altstore-source.json", "w"), indent=2)
+          PY
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-$BUILD" OBDPro.ipa altstore-source.json \
+            --title "OBD Pro $VERSION (build $BUILD)" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            --latest

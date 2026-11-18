@@ -19,4 +19,7 @@ targets:
         INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Connect to your OBD2 Bluetooth LE adapter."
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connect to your OBD2 Wi-Fi adapter."
         INFOPLIST_KEY_UIBackgroundModes: bluetooth-central
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: com.obdpro.app
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"

@@ -4,6 +4,7 @@ struct RootView: View {
     @Environment(VehicleSession.self) private var s
     @AppStorage("accent") private var accent: Accent = .cyan
     @AppStorage("appearance") private var appearance: Appearance = .system
+    @Environment(UpdateChecker.self) private var updates
 
     var body: some View {
         TabView {
@@ -13,6 +14,8 @@ struct RootView: View {
             VehicleView().tabItem { Label("Vehicle", systemImage: "car") }
             LogsView().tabItem { Label("Logs", systemImage: "doc.text") }
         }
+        .overlay(alignment: .bottom) { UpdateBanner() }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: updates.showBanner)
         .tint(accent.color)
         .preferredColorScheme(appearance.scheme)
     }
@@ -60,6 +63,7 @@ struct ConnectView: View {
                     TextField("Port", value: $port, format: .number.grouping(.never)).keyboardType(.numberPad)
                     Button("Connect Wi-Fi") { s.connectWiFi(host: host, port: UInt16(clamping: port)) }
                 }
+                UpdateSettingsSection()
             }
             .navigationTitle("OBD Pro")
         }
