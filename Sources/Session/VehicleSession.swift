@@ -131,7 +131,7 @@ final class VehicleSession {
     private var pollTask: Task<Void, Never>?
     private let historyLimit = 120
 
-    var supportedPIDs: [PID] { PIDs.all.filter { supported.isEmpty || supported.contains($0.id) } }
+    var supportedPIDs: [PID] { PIDs.all.filter { supported.isEmpty || supported.contains($0.id) } + (vagSupported ? [PIDs.oilTemp] : []) }
 
     // MARK: Connection
     func connectBLE(_ device: BLEDevice) {
@@ -256,7 +256,7 @@ final class VehicleSession {
                 var ids = self.selected
                 for extra: UInt8 in [0x05, 0x0C, 0x0D, 0x11, 0x42, 0x62, 0x63] where !ids.contains(extra) &&
                     (self.supported.isEmpty || self.supported.contains(extra)) { ids.append(extra) }
-                let pids = ids.compactMap { PIDs.byID[$0] }
+                let pids = ids.compactMap { PIDs.byID[$0] }.filter { $0.id != 0xFF }
                 if pids.isEmpty { try? await Task.sleep(nanoseconds: 200_000_000); continue }
                 let r = await svc.read(pids)
                 self.apply(r)
@@ -274,8 +274,9 @@ final class VehicleSession {
                 } else if cycle % 25 == 0, let av = await svc.batteryVoltage() {
                     self.batteryVoltage = av - (SavedAdapter.offset(self.currentLink) ?? 0)
                 }
-                if self.wantOil, self.family == .vag, self.vagSupported, cycle % 8 == 0 {
+                if (self.wantOil || self.selected.contains(0xFF)), self.family == .vag, self.vagSupported, cycle % 8 == 0 {
                     self.oilTemp = await svc.readOilTemp()
+                    if let o = self.oilTemp { self.apply([0xFF: o]) }
                 }
                 if cycle % 600 == 0 { await self.watchFaults(svc) }
                 self.checkAlerts()

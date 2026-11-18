@@ -65,7 +65,11 @@ enum PIDs {
         PID(id: 0x63, name: "Reference Torque", unit: "Nm", bytes: 2, min: 0, max: 65535) { AB($0) },
     ]
 
-    static let byID: [UInt8: PID] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    /// Synthetic PID for SEAT/VW engine oil temperature (read from module 01 DID 11BD, injected by the session).
+    /// id 0xFF is not a real OBD PID, so the poller never requests it on the bus.
+    static let oilTemp = PID(id: 0xFF, name: "Oil Temp", unit: "°C", bytes: 2, min: 40, max: 150) { _ in 0 }
+
+    static let byID: [UInt8: PID] = Dictionary(uniqueKeysWithValues: (all + [oilTemp]).map { ($0.id, $0) })
 
     /// Response data length for any mode 01 PID (needed to split multi-PID responses).
     static func length(of pid: UInt8) -> Int? {

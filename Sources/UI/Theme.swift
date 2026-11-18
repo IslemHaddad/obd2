@@ -35,6 +35,7 @@ struct Tile: Identifiable, Codable, Hashable {
         Tile(pid: 0x0C, style: .arc, size: .large, warnAt: 6000),
         Tile(pid: 0x0D, style: .ring, size: .small),
         Tile(pid: 0x05, style: .ring, size: .small, warnAt: 110),
+        Tile(pid: 0xFF, style: .ring, size: .small, warnAt: 125),      // SEAT/VW oil temp
         Tile(pid: 0x04, style: .graph, size: .wide),
         Tile(pid: 0x11, style: .bar, size: .small),
         Tile(pid: 0x42, style: .number, size: .small),
