@@ -73,6 +73,8 @@ class Session(QObject):
         self.vin: str | None = None
         self.poll_enabled = True
         self.override_ids: list[int] | None = None
+        self.extra_vag: list[dict] = []        # extra module values requested by the visible page
+        self.extra_pids: list[int] = []
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._log_file = None
@@ -181,7 +183,7 @@ class Session(QObject):
 
     def vag_tiles(self) -> list[dict]:
         seen, out = set(), []
-        for t in self.tiles:
+        for t in self.tiles + [{"vag": d} for d in self.extra_vag]:
             d = t.get("vag")
             if d and (d["module"], d["did"]) not in seen:
                 seen.add((d["module"], d["did"]))
@@ -203,7 +205,8 @@ class Session(QObject):
     def _poll_ids(self) -> list[int]:
         if self.override_ids:
             return self.override_ids
-        ids = self.selected() + [p for p in F.BACKGROUND_PIDS if p not in self.selected()]
+        ids = self.selected()
+        ids += [p for p in F.BACKGROUND_PIDS + self.extra_pids if p not in ids]
         return [p for p in ids if p in pids.BY_ID and (not self.supported or p in self.supported)]
 
     def _read_vag(self) -> dict:

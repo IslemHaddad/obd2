@@ -14,6 +14,7 @@ from .gui.vehicle import VehiclePage
 from .gui.power import PowerPage
 from .gui.reportpage import ReportPage
 from .gui.history import HistoryPage, TripsPage
+from .gui.dash import DashPage
 from .store import Store
 
 
@@ -29,6 +30,7 @@ class Main(QMainWindow):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
         side = QWidget()
+        self.sidebar = side
         side.setFixedWidth(200)
         side.setStyleSheet("background: #0B0C0E;")
         from PySide6.QtWidgets import QVBoxLayout
@@ -39,7 +41,7 @@ class Main(QMainWindow):
         sl.addWidget(brand)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        for t in ("⚡  Connect", "◔  Live Data", "⚠  Diagnose", "🚗  Vehicle", "📋  Report", "🕘  Fault History", "🛣  Trips & Battery", "🏁  Power Run", "▤  Logs"):
+        for t in ("⚡  Connect", "🎛  Dashboard", "◔  Live Data", "⚠  Diagnose", "🚗  Vehicle", "📋  Report", "🕘  Fault History", "🛣  Trips & Battery", "🏁  Power Run", "▤  Logs"):
             self.nav.addItem(t)
         sl.addWidget(self.nav, 1)
         self.conn = QLabel("  ● Offline")
@@ -47,7 +49,7 @@ class Main(QMainWindow):
         sl.addWidget(self.conn)
         h.addWidget(side)
         self.stack = QStackedWidget()
-        self.pages = [ConnectPage(self.s), LivePage(self.s), DiagnosePage(self.s), VehiclePage(self.s),
+        self.pages = [ConnectPage(self.s), DashPage(self.s), LivePage(self.s), DiagnosePage(self.s), VehiclePage(self.s),
                       ReportPage(self.s), HistoryPage(self.s), TripsPage(self.s), PowerPage(self.s),
                       LogsPage(self.s)]
         for p in self.pages:
@@ -85,7 +87,7 @@ class Main(QMainWindow):
 
     def _page(self, i):
         self.stack.setCurrentIndex(i)
-        self.s.poll_enabled = i in (0, 1, 6, 7)        # only poll live PIDs when visible → bus free for diagnostics
+        self.s.poll_enabled = i in (0, 1, 2, 7, 8)        # only poll live PIDs when visible → bus free for diagnostics
 
     def _state(self, st, _d):
         col = {"connected": C.GREEN, "connecting": C.YELLOW, "reconnecting": C.YELLOW, "failed": C.RED}.get(st, C.MUTED)
