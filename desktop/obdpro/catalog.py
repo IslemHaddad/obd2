@@ -1,0 +1,39 @@
+"""VW Group catalog: brands, models, control modules (ported from the iOS app)."""
+
+BRANDS = {  # key: (display, colour, [(model, body)])
+    "seat": ("SEAT", "#DB1F29", [('Ibiza', 'hatch'), ('Leon', 'hatch'), ('Leon Sportstourer', 'estate'), ('Arona', 'suv'), ('Ateca', 'suv'), ('Tarraco', 'suv'), ('Alhambra', 'van'), ('Toledo', 'sedan'), ('Mii', 'hatch'), ('Altea', 'van'), ('Exeo', 'sedan')]),
+    "cupra": ("CUPRA", "#B8734A", [('Born', 'hatch'), ('Formentor', 'suv'), ('Leon', 'hatch'), ('Ateca', 'suv'), ('Tavascan', 'suv'), ('Terramar', 'suv')]),
+    "vw": ("Volkswagen", "#00479A", [('Up!', 'hatch'), ('Polo', 'hatch'), ('Golf', 'hatch'), ('Golf Variant', 'estate'), ('Golf Plus', 'van'), ('Jetta', 'sedan'), ('Passat', 'sedan'), ('Passat Variant', 'estate'), ('Arteon', 'coupe'), ('Scirocco', 'coupe'), ('Beetle', 'coupe'), ('Taigo', 'suv'), ('T-Cross', 'suv'), ('T-Roc', 'suv'), ('Tiguan', 'suv'), ('Touareg', 'suv'), ('Touran', 'van'), ('Sharan', 'van'), ('Caddy', 'van'), ('Transporter', 'van'), ('Amarok', 'suv'), ('ID.3', 'hatch'), ('ID.4', 'suv'), ('ID.5', 'suv'), ('ID.7', 'sedan'), ('ID. Buzz', 'van')]),
+    "audi": ("Audi", "#BFBFBF", [('A1', 'hatch'), ('A3', 'hatch'), ('A4', 'sedan'), ('A4 Avant', 'estate'), ('A5', 'coupe'), ('A6', 'sedan'), ('A6 Avant', 'estate'), ('A7', 'coupe'), ('A8', 'sedan'), ('Q2', 'suv'), ('Q3', 'suv'), ('Q4 e-tron', 'suv'), ('Q5', 'suv'), ('Q7', 'suv'), ('Q8', 'suv'), ('e-tron GT', 'coupe'), ('TT', 'coupe'), ('R8', 'coupe')]),
+    "skoda": ("Škoda", "#4FA83D", [('Citigo', 'hatch'), ('Fabia', 'hatch'), ('Rapid', 'sedan'), ('Scala', 'hatch'), ('Octavia', 'sedan'), ('Octavia Combi', 'estate'), ('Superb', 'sedan'), ('Superb Combi', 'estate'), ('Kamiq', 'suv'), ('Karoq', 'suv'), ('Kodiaq', 'suv'), ('Yeti', 'suv'), ('Roomster', 'van'), ('Enyaq', 'suv'), ('Elroq', 'suv')]),
+    "porsche": ("Porsche", "#CC9933", [('911', 'coupe'), ('718', 'coupe'), ('Panamera', 'sedan'), ('Taycan', 'sedan'), ('Macan', 'suv'), ('Cayenne', 'suv')]),
+    "bentley": ("Bentley", "#1A5940", [('Continental GT', 'coupe'), ('Flying Spur', 'sedan'), ('Bentayga', 'suv')]),
+    "lamborghini": ("Lamborghini", "#F2BF1A", [('Huracán', 'coupe'), ('Revuelto', 'coupe'), ('Urus', 'suv')]),
+}
+
+WMI = {
+    "VSS": "seat", "WVW": "vw", "WVG": "vw", "WV1": "vw", "WV2": "vw", "1VW": "vw", "3VW": "vw", "9BW": "vw",
+    "LSV": "vw", "LFV": "vw", "XW8": "vw", "AAV": "vw", "WAU": "audi", "WUA": "audi", "TRU": "audi", "WA1": "audi",
+    "TMB": "skoda", "TMP": "skoda", "WP0": "porsche", "WP1": "porsche", "SCB": "bentley", "SJA": "bentley",
+    "ZHW": "lamborghini",
+}
+
+BODY_ASPECT = {"hatch": 2.15, "sedan": 2.45, "estate": 2.5, "suv": 2.25, "coupe": 2.35, "van": 2.55}
+
+CATEGORY_COLOR = {"powertrain": "#FF9F0A", "chassis": "#FF9F0A", "safety": "#FF453A", "electronics": "#FFD60A"}
+
+MODULES = [  # (address, name, request, response, category, x, y)
+    ("01", "Engine Electronics", "7E0", "7E8", "powertrain", 0.5, 0.14),
+    ("02", "Transmission", "7E1", "7E9", "powertrain", 0.5, 0.27),
+    ("03", "Brakes / ABS", "713", "77D", "chassis", 0.27, 0.2),
+    ("44", "Steering Assist", "712", "77C", "chassis", 0.7, 0.22),
+    ("08", "Air Conditioning", "746", "7B0", "electronics", 0.5, 0.41),
+    ("09", "Central Electrics", "70E", "778", "electronics", 0.2, 0.42),
+    ("15", "Airbags", "715", "77F", "safety", 0.5, 0.5),
+    ("16", "Steering Column Electr.", "70C", "776", "electronics", 0.33, 0.41),
+    ("17", "Instruments", "714", "77E", "electronics", 0.33, 0.34),
+    ("19", "Gateway", "710", "77A", "electronics", 0.66, 0.44),
+    ("5F", "Infotainment", "773", "7DD", "electronics", 0.5, 0.34),
+    ("42", "Driver Door", "74A", "7B4", "electronics", 0.06, 0.5),
+    ("52", "Passenger Door", "74B", "7B5", "electronics", 0.94, 0.5),
+]

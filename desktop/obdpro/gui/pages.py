@@ -1,0 +1,456 @@
+"""Connect, Live, Diagnose and Logs pages."""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGridLayout,
+                               QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QMenu, QScrollArea, QSpinBox,
+                               QSplitter, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QWidget,
+                               QCheckBox)
+
+from .. import pids
+from ..transport import list_serial_ports, scan_ble
+from . import common as C
+from .widgets import GaugeTile
+
+
+# =================================================================== Connect
+class ConnectPage(QWidget):
+    def __init__(self, s):
+        super().__init__()
+        self.s = s
+        w, lay = C.page()
+        root = QScrollArea()
+        root.setWidgetResizable(True)
+        root.setWidget(w)
+        from PySide6.QtWidgets import QVBoxLayout
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(root)
+
+        lay.addWidget(C.label("Connect", "h1"))
+        self.status = C.label("Not connected", "h2")
+        self.detail = C.label("", "muted", wrap=True)
+        self.disc = C.button("Disconnect", "danger", s.disconnect)
+        self.disc.hide()
+        lay.addWidget(C.card(C.row(self.status, "stretch", self.disc), self.detail))
+
+        # USB / serial / Bluetooth classic
+        self.ports = QComboBox()
+        self.ports.setMinimumWidth(320)
+        self.ports.setEditable(True)
+        self.baud = QComboBox()
+        self.baud.addItems(["38400", "9600", "115200", "230400", "500000"])
+        refresh = C.button("Refresh", slot=self.refresh_ports)
+        go_serial = C.button("Connect", "primary", self.connect_serial)
+        lay.addWidget(C.card(
+            C.label("USB cable / Bluetooth (classic)", "h2"),
+            C.label("USB adapters appear as /dev/ttyUSB0 or COM3. Classic Bluetooth adapters (most Konnwei KW902/KW903 "
+                    "on PC): pair once, then bind:  sudo rfcomm bind 0 <adapter MAC>  → /dev/rfcomm0.", "muted", True),
+            C.row(self.ports, self.baud, refresh, "stretch", go_serial)))
+
+        # BLE
+        self.ble = QListWidget()
+        self.ble.setFixedHeight(130)
+        self.ble_btn = C.button("Scan", slot=self.scan_ble)
+        go_ble = C.button("Connect", "primary", self.connect_ble)
+        self.ble.itemDoubleClicked.connect(lambda _: self.connect_ble())
+        lay.addWidget(C.card(C.row(C.label("Bluetooth LE", "h2"), "stretch", self.ble_btn, go_ble), self.ble))
+
+        # Wi-Fi
+        st = s.store.get("settings", {}) or {}
+        self.host = QLineEdit(st.get("host", "192.168.0.10"))
+        self.port = QSpinBox()
+        self.port.setRange(1, 65535)
+        self.port.setValue(int(st.get("port", 35000)))
+        go_tcp = C.button("Connect", "primary", self.connect_tcp)
+        lay.addWidget(C.card(C.label("Wi-Fi", "h2"), C.row(C.label("Host"), self.host, C.label("Port"), self.port,
+                                                         "stretch", go_tcp)))
+
+        # Demo
+        lay.addWidget(C.card(C.row(C.label("Demo car (simulated SEAT Leon with faults)", "h2"), "stretch",
+                                   C.button("Start Demo", slot=lambda: s.connect("sim", "Demo SEAT Leon")))))
+        lay.addStretch(1)
+        s.state_changed.connect(self.on_state)
+        self.refresh_ports()
+
+    def refresh_ports(self):
+        self.ports.clear()
+        for dev, desc in list_serial_ports():
+            self.ports.addItem(desc, dev)
+        if not self.ports.count():
+            self.ports.addItem("/dev/rfcomm0", "/dev/rfcomm0")
+
+    def connect_serial(self):
+        dev = self.ports.currentData() or self.ports.currentText().split(" ")[0]
+        self.s.connect("serial", (dev, int(self.baud.currentText())))
+
+    def scan_ble(self):
+        self.ble_btn.setEnabled(False)
+        self.ble_btn.setText("Scanning…")
+        self.ble.clear()
+
+        def done(res):
+            self.ble_btn.setEnabled(True)
+            self.ble_btn.setText("Scan")
+            for addr, name, rssi in res:
+                it = QListWidgetItem(f"{name}    {addr}    {rssi} dBm")
+                it.setData(Qt.UserRole, addr)
+                self.ble.addItem(it)
+            if not res:
+                self.ble.addItem("No BLE devices found")
+
+        def fail(m):
+            self.ble_btn.setEnabled(True)
+            self.ble_btn.setText("Scan")
+            C.error_box(f"Bluetooth scan failed: {m}")
+
+        C.run_bg(scan_ble, done, fail)
+
+    def connect_ble(self):
+        it = self.ble.currentItem()
+        if it and it.data(Qt.UserRole):
+            self.s.connect("ble", it.data(Qt.UserRole))
+
+    def connect_tcp(self):
+        st = self.s.store.get("settings", {}) or {}
+        st.update(host=self.host.text().strip(), port=self.port.value())
+        self.s.store.set("settings", st)
+        self.s.connect("tcp", (self.host.text().strip(), self.port.value()))
+
+    def on_state(self, state, detail):
+        colors = {"connected": C.GREEN, "failed": C.RED, "connecting": C.YELLOW}
+        text = {"idle": "Not connected", "connecting": "Connecting…", "connected": "Connected",
+                "failed": "Connection failed"}[state]
+        self.status.setText(text)
+        self.status.setStyleSheet(f"color: {colors.get(state, C.MUTED)}")
+        self.detail.setText(detail)
+        self.disc.setVisible(state in ("connected", "connecting"))
+
+
+# =================================================================== Live
+STYLES = ["ring", "arc", "bar", "number", "graph"]
+
+
+class TileDialog(QDialog):
+    def __init__(self, parent, supported: set[int], tile: dict | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Gauge")
+        f = QFormLayout(self)
+        self.pid = QComboBox()
+        for p in pids.ALL:
+            if not supported or p.id in supported:
+                self.pid.addItem(f"{p.name}  (01{p.id:02X})", p.id)
+        self.style = QComboBox()
+        self.style.addItems([s.capitalize() for s in STYLES])
+        self.warn_on = QCheckBox("Warn above")
+        self.warn = QDoubleSpinBox()
+        self.warn.setRange(-1e6, 1e6)
+        if tile:
+            i = self.pid.findData(tile["pid"])
+            self.pid.setCurrentIndex(max(0, i))
+            self.style.setCurrentIndex(STYLES.index(tile.get("style", "ring")))
+            if tile.get("warn") is not None:
+                self.warn_on.setChecked(True)
+                self.warn.setValue(tile["warn"])
+        f.addRow("Sensor", self.pid)
+        f.addRow("Style", self.style)
+        f.addRow(self.warn_on, self.warn)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        f.addRow(bb)
+
+    def result_tile(self) -> dict:
+        return {"pid": self.pid.currentData(), "style": STYLES[self.style.currentIndex()],
+                "warn": self.warn.value() if self.warn_on.isChecked() else None}
+
+
+class LivePage(QWidget):
+    def __init__(self, s):
+        super().__init__()
+        self.s = s
+        w, lay = C.page()
+        from PySide6.QtWidgets import QVBoxLayout
+        QVBoxLayout(self).addWidget(w)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.rate = C.pill("0.0 Hz", C.ACCENT)
+        self.batt = C.pill("— V", C.GREEN)
+        self.rec = C.button("● Record CSV", slot=self.toggle_rec)
+        add = C.button("+ Add Gauge", "primary", self.add_tile)
+        reset = C.button("Reset Layout", slot=self.reset)
+        lay.addLayout(C.row(C.label("Live Data", "h1"), self.rate, self.batt, "stretch", reset, self.rec, add))
+        lay.addWidget(C.label("Click a gauge to edit it. Right-click for style, order and remove.", "muted"))
+        self.grid_host = QWidget()
+        self.grid = QGridLayout(self.grid_host)
+        self.grid.setSpacing(14)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setWidget(self.grid_host)
+        lay.addWidget(sc, 1)
+        self.tiles: list[GaugeTile] = []
+        self.rebuild()
+        s.values.connect(self.on_values)
+        s.rate.connect(lambda r: self.rate.setText(f"{r:.1f} Hz"))
+        s.battery.connect(lambda v: self.batt.setText(f"{v:.1f} V"))
+
+    def rebuild(self):
+        for t in self.tiles:
+            t.setParent(None)
+            t.deleteLater()
+        self.tiles = []
+        for cfg in self.s.tiles:
+            p = pids.BY_ID.get(cfg["pid"])
+            if not p:
+                continue
+            t = GaugeTile(p, cfg.get("style", "ring"), cfg.get("warn"))
+            t.setContextMenuPolicy(Qt.CustomContextMenu)
+            t.customContextMenuRequested.connect(lambda pos, tile=t, c=cfg: self.menu(tile, c, pos))
+            t.clicked.connect(lambda c=cfg: self.edit(c))
+            self.tiles.append(t)
+        self.relayout()
+
+    def relayout(self):
+        while self.grid.count():
+            self.grid.takeAt(0)
+        cols = max(1, min(4, self.width() // 280))
+        for i, t in enumerate(self.tiles):
+            self.grid.addWidget(t, i // cols, i % cols)
+            t.setMinimumHeight(230 if t.style in ("ring", "arc") else 170)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.relayout()
+
+    def on_values(self, vals: dict):
+        for t in self.tiles:
+            if t.pid.id in vals:
+                t.set_value(vals[t.pid.id])
+
+    def menu(self, tile, cfg, pos):
+        m = QMenu(self)
+        sm = m.addMenu("Style")
+        for st in STYLES:
+            a = QAction(st.capitalize(), sm, checkable=True, checked=cfg.get("style") == st)
+            a.triggered.connect(lambda _=False, st=st: self._update(cfg, style=st))
+            sm.addAction(a)
+        m.addAction("Edit…", lambda: self.edit(cfg))
+        m.addAction("Move earlier", lambda: self._move(cfg, -1))
+        m.addAction("Move later", lambda: self._move(cfg, 1))
+        m.addSeparator()
+        m.addAction("Remove", lambda: self._remove(cfg))
+        m.exec(tile.mapToGlobal(pos))
+
+    def _update(self, cfg, **kw):
+        cfg.update(kw)
+        self.s.save_tiles()
+        self.rebuild()
+
+    def _move(self, cfg, d):
+        i = self.s.tiles.index(cfg)
+        j = max(0, min(len(self.s.tiles) - 1, i + d))
+        self.s.tiles[i], self.s.tiles[j] = self.s.tiles[j], self.s.tiles[i]
+        self.s.save_tiles()
+        self.rebuild()
+
+    def _remove(self, cfg):
+        self.s.tiles.remove(cfg)
+        self.s.save_tiles()
+        self.rebuild()
+
+    def edit(self, cfg):
+        d = TileDialog(self, self.s.supported, cfg)
+        if d.exec():
+            self._update(cfg, **d.result_tile())
+
+    def add_tile(self):
+        d = TileDialog(self, self.s.supported)
+        if d.exec():
+            self.s.tiles.append(d.result_tile())
+            self.s.save_tiles()
+            self.rebuild()
+
+    def reset(self):
+        from .session import DEFAULT_TILES
+        self.s.tiles = [dict(t) for t in DEFAULT_TILES]
+        self.s.save_tiles()
+        self.rebuild()
+
+    def toggle_rec(self):
+        if self.s.logging:
+            self.s.stop_logging()
+            self.rec.setText("● Record CSV")
+            self.rec.setObjectName("")
+        else:
+            if not self.s.connected:
+                return C.error_box("Connect first.")
+            self.s.start_logging()
+            self.rec.setText(f"■ Stop  ({self.s.log_path.name})")
+            self.rec.setObjectName("danger")
+        self.rec.style().unpolish(self.rec)
+        self.rec.style().polish(self.rec)
+
+
+# =================================================================== Diagnose (generic OBD-II)
+class DiagnosePage(QWidget):
+    def __init__(self, s):
+        super().__init__()
+        self.s = s
+        self.reports = []
+        w, lay = C.page()
+        from PySide6.QtWidgets import QVBoxLayout
+        QVBoxLayout(self).addWidget(w)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.scan_btn = C.button("Scan", "primary", self.scan)
+        self.clear_sel = C.button("Clear Selected Module", "danger", self.clear_selected)
+        self.clear_all = C.button("Clear Faulty Modules", "danger", self.clear_faulty)
+        self.mil = C.label("", "h2")
+        lay.addLayout(C.row(C.label("Diagnose", "h1"), "stretch", self.clear_sel, self.clear_all, self.scan_btn))
+        lay.addWidget(C.label("Generic OBD-II emissions codes, read and cleared per module. Healthy modules are never "
+                              "touched. For SEAT/VW body, ABS, airbag… use the Vehicle page.", "muted", True))
+        lay.addWidget(self.mil)
+        split = QSplitter(Qt.Horizontal)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Module / Code", "Type", "Description"])
+        self.tree.header().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.tree.setColumnWidth(0, 220)
+        self.tree.setAlternatingRowColors(True)
+        split.addWidget(self.tree)
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        self.ready = QTableWidget(0, 2)
+        self.ready.setHorizontalHeaderLabels(["Readiness monitor", "Status"])
+        self.ready.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.ready.verticalHeader().hide()
+        self.freeze = QTableWidget(0, 2)
+        self.freeze.setHorizontalHeaderLabels(["Freeze frame", "Value"])
+        self.freeze.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.freeze.verticalHeader().hide()
+        rl.addWidget(self.ready)
+        rl.addWidget(self.freeze)
+        split.addWidget(right)
+        split.setSizes([700, 380])
+        lay.addWidget(split, 1)
+        self._busy(False)
+
+    def _busy(self, b):
+        on = self.s.connected and not b
+        self.scan_btn.setEnabled(on)
+        self.clear_sel.setEnabled(on and bool(self.reports))
+        self.clear_all.setEnabled(on and any(r.faulty for r in self.reports))
+        self.scan_btn.setText("Scanning…" if b else "Scan")
+
+    def scan(self):
+        if not self.s.connected:
+            return
+        self._busy(True)
+        o = self.s.obd
+
+        def work():
+            from ..obd import ModuleReport
+            with self.s.elm.lock:
+                ecus = o.discover_ecus()
+                reps = [ModuleReport(e, o.dtcs_for(e)) for e in ecus]
+                return reps, o.readiness(), o.freeze_frame(self.s.supported)
+
+        def done(r):
+            self.reports, ready, freeze = r
+            self.render(ready, freeze)
+            self._busy(False)
+
+        C.run_bg(work, done, lambda m: (self._busy(False), C.error_box(m)))
+
+    def render(self, ready, freeze):
+        self.tree.clear()
+        for rep in sorted(self.reports, key=lambda r: not r.faulty):
+            top = QTreeWidgetItem([rep.ecu.name, f"{len(rep.dtcs)} code(s)" if rep.faulty else "No faults — skipped",
+                                   rep.ecu.request if rep.ecu.request != "*" else ""])
+            top.setData(0, Qt.UserRole, rep)
+            top.setForeground(1, C.QColor(C.ORANGE if rep.faulty else C.GREEN))
+            for d in rep.dtcs:
+                ch = QTreeWidgetItem([d.code, d.kind, d.description])
+                ch.setForeground(1, C.QColor({"Stored": C.RED, "Pending": C.YELLOW}.get(d.kind, "#BF5AF2")))
+                top.addChild(ch)
+            self.tree.addTopLevelItem(top)
+            top.setExpanded(True)
+        if ready:
+            self.mil.setText(f"Check Engine light {'ON' if ready.mil_on else 'OFF'} · {ready.dtc_count} confirmed code(s)")
+            self.mil.setStyleSheet(f"color: {C.ORANGE if ready.mil_on else C.GREEN}")
+            mons = [m for m in ready.monitors if m[1]]
+            self.ready.setRowCount(len(mons))
+            for i, (n, _sup, comp) in enumerate(mons):
+                self.ready.setItem(i, 0, QTableWidgetItem(n))
+                it = QTableWidgetItem("Complete" if comp else "Incomplete")
+                it.setForeground(C.QColor(C.GREEN if comp else C.YELLOW))
+                self.ready.setItem(i, 1, it)
+        self.freeze.setRowCount(len(freeze))
+        for i, (k, v) in enumerate(sorted(freeze.items())):
+            p = pids.BY_ID[k]
+            self.freeze.setItem(i, 0, QTableWidgetItem(p.name))
+            self.freeze.setItem(i, 1, QTableWidgetItem(f"{v:.1f} {p.unit}"))
+
+    def _clear(self, reps):
+        names = ", ".join(r.ecu.name for r in reps)
+        if not reps or not C.confirm(self, "Clear codes", f"Clear codes in: {names}?\n\nEngine OFF, ignition ON. "
+                                                           f"Other modules are not touched.", "Clear"):
+            return
+        self._busy(True)
+        o = self.s.obd
+
+        def work():
+            with self.s.elm.lock:
+                for r in reps:
+                    o.clear_for(r.ecu)
+        C.run_bg(work, lambda _: self.scan(), lambda m: (self._busy(False), C.error_box(m)))
+
+    def clear_selected(self):
+        it = self.tree.currentItem()
+        while it and it.parent():
+            it = it.parent()
+        if it:
+            self._clear([it.data(0, Qt.UserRole)])
+
+    def clear_faulty(self):
+        self._clear([r for r in self.reports if r.faulty])
+
+
+# =================================================================== Logs
+class LogsPage(QWidget):
+    def __init__(self, s):
+        super().__init__()
+        self.s = s
+        w, lay = C.page()
+        from PySide6.QtWidgets import QVBoxLayout
+        QVBoxLayout(self).addWidget(w)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        lay.addLayout(C.row(C.label("Logs", "h1"), "stretch", C.button("Refresh", slot=self.refresh),
+                            C.button("Open Folder", "primary", self.open_folder)))
+        lay.addWidget(C.label(f"CSV recordings are saved in {s.store.logs_dir()}", "muted"))
+        self.list = QListWidget()
+        self.list.itemDoubleClicked.connect(lambda it: QDesktopServices.openUrl(QUrl.fromLocalFile(it.data(Qt.UserRole))))
+        lay.addWidget(self.list, 1)
+        self.refresh()
+
+    def refresh(self):
+        self.list.clear()
+        for f in sorted(self.s.store.logs_dir().glob("*.csv"), reverse=True):
+            it = QListWidgetItem(f"{f.name}    {f.stat().st_size / 1024:.1f} KB")
+            it.setData(Qt.UserRole, str(f))
+            self.list.addItem(it)
+
+    def open_folder(self):
+        d = str(self.s.store.logs_dir())
+        if sys.platform.startswith("win"):
+            os.startfile(d)  # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open" if sys.platform.startswith("linux") else "open", d])
+
+    def showEvent(self, e):
+        self.refresh()
+        super().showEvent(e)
