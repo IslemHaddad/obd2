@@ -16,30 +16,39 @@ concurrency:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    # Official image: Android SDK/NDK, python-for-android, Cython and buildozer are pre-installed & known to work.
-    container:
-      image: kivy/buildozer:1.5.0
-      options: --user root
     env:
       BUILD: ${{ github.run_number }}
-      HOME: /root
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
 
       - name: Bundle the shared diagnostic core + bleak Android backend
         run: |
           pip install --quiet bleak
           rsync -a --exclude gui --exclude app.py --exclude __pycache__ desktop/obdpro/ android/obdpro/
-          B=$(python3 -c "import bleak,os;print(os.path.dirname(bleak.__file__))")
+          B=$(python -c "import bleak,os;print(os.path.dirname(bleak.__file__))")
           mkdir -p android/p4a-recipes
           cp -r "$B/backends/p4android/recipes/bleak" android/p4a-recipes/
           sed -i "s/^version = .*/version = 1.0.${BUILD}/" android/buildozer.spec
 
+      - name: Cache Buildozer global dir (keeps the debug keystore stable so updates install over old)
+        uses: actions/cache@v4
+        with:
+          path: buildozer-home
+          key: buildozer-global-v3
+
+      # Official kivy/buildozer image: Android SDK/NDK, python-for-android, Cython and buildozer pre-installed.
       - name: Build APK
-        working-directory: android
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          buildozer android debug
+          mkdir -p buildozer-home
+          docker run --rm \
+            --user root \
+            -e HOME=/home/user \
+            -v "$PWD/android":/home/user/hostcwd \
+            -v "$PWD/buildozer-home":/home/user/.buildozer \
+            kivy/buildozer android debug
 
       - uses: actions/upload-artifact@v4
         with:
