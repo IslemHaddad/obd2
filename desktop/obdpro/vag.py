@@ -246,14 +246,38 @@ class VAG:
                 self.session(0x01)
             except ELMError:
                 pass
+            if not ok and m.category == "powertrain":
+                ok = self._try_obd_clear()       # engine/gearbox ECUs often only accept SAE mode 04
             if not ok:
-                raise ELMError(f"{m.name} refused to clear codes")
+                raise ELMError(f"{m.name} refused to clear codes" + (f" ({self._last_nrc})" if self._last_nrc else ""))
+
+    _last_nrc = ""
 
     def _try_clear(self) -> bool:
         try:
             d = self.elm.request_uds("14FFFFFF", 3, pending_wait=8)
-            return _positive(d, 0x54) is not None
+            if _positive(d, 0x54) is not None:
+                return True
+            n = _negative(d, 0x14)
+            self._last_nrc = str(n) if n else ""
+            return False
         except ELMError:
+            return False
+
+    def _try_obd_clear(self) -> bool:
+        """SAE J1979 mode 04 sent physically to this ECU (header already set by the channel)."""
+        try:
+            d = self.elm.request_uds("04", 5, pending_wait=8)
+            if 0x44 in d:
+                return True
+            n = _negative(d, 0x04)
+            if n and n.nrc == 0x22:
+                self._last_nrc = "conditions not correct — switch the ENGINE OFF, keep ignition ON"
+            elif n:
+                self._last_nrc = str(n)
+            return False
+        except ELMError as e:
+            self._last_nrc = str(e)
             return False
 
     # ---------- identification ----------
