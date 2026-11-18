@@ -2,6 +2,7 @@ name: Build iOS
 
 on:
   push:
+    paths-ignore: ["android/**", "desktop/**", "tools/**", ".github/workflows/build-android.yml"]
   workflow_dispatch:
 
 permissions:
