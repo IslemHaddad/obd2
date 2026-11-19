@@ -713,14 +713,58 @@ class OBDProApp(App):
     title = "OBD Pro"
 
     def build(self):
-        setup_storage(self)
-        request_android_permissions()
-        self.session = Session(self)
-        return Root(self.session)
+        try:
+            setup_storage(self)
+        except Exception:
+            pass
+        try:
+            request_android_permissions()
+        except Exception:
+            pass
+        try:
+            self.session = Session(self)
+            return Root(self.session)
+        except Exception:
+            import traceback
+            tb = traceback.format_exc()
+            try:
+                with open(os.path.join(self.user_data_dir, "crash.txt"), "w") as f:
+                    f.write(tb)
+            except Exception:
+                pass
+            return self._error_view("Startup error", tb)
+
+    def _error_view(self, title, tb):
+        sv = ScrollView()
+        lab = Label(text="[b]%s[/b]\n\n%s" % (title, tb), markup=True, font_size=sp(12), size_hint_y=None,
+                    halign="left", color=TEXT, padding=(dp(12), dp(12)))
+        lab.bind(width=lambda *_: setattr(lab, "text_size", (lab.width - dp(24), None)))
+        lab.bind(texture_size=lambda *_: setattr(lab, "height", lab.texture_size[1]))
+        sv.add_widget(lab)
+        return sv
 
     def on_stop(self):
-        self.session.disconnect()
+        try:
+            self.session.disconnect()
+        except Exception:
+            pass
+
+
+def main():
+    try:
+        OBDProApp().run()
+    except Exception:
+        import traceback
+        from kivy.base import runTouchApp
+        tb = traceback.format_exc()
+        sv = ScrollView()
+        lab = Label(text="[b]Fatal error[/b]\n\n" + tb, markup=True, font_size=sp(12), size_hint_y=None,
+                    halign="left", color=TEXT, padding=(dp(12), dp(12)))
+        lab.bind(width=lambda *_: setattr(lab, "text_size", (lab.width - dp(24), None)))
+        lab.bind(texture_size=lambda *_: setattr(lab, "height", lab.texture_size[1]))
+        sv.add_widget(lab)
+        runTouchApp(sv)
 
 
 if __name__ == "__main__":
-    OBDProApp().run()
+    main()
