@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: buildozer-sdk-v4
+          key: buildozer-sdk-v5-p4a2024
 
       - name: Build APK
         working-directory: android
