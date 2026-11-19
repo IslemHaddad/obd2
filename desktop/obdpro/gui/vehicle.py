@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QTabWidget,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import catalog
+from .. import catalog, service
 from ..elm import ELMError, hex_bytes, to_hex
 from ..vag import MODULE_BY_ADDR, MODULES, Report, decode_measurement, numeric, patch_number
 from . import common as C
@@ -180,6 +180,8 @@ class VehiclePage(QWidget):
                 rep = vag.report(m)
                 if rep.present:
                     F.record_faults(self.s.store, self.s.vin, m.address, [(f.code, f.state) for f in rep.faults])
+                    if m.address == "01" and not self.s.fuel:
+                        self._detect_fuel(m)
                 sig.step.emit(i, rep)
 
         def done(_):
@@ -188,6 +190,24 @@ class VehiclePage(QWidget):
             self._render()
 
         C.run_bg(work, done, lambda m: (self.progress.hide(), self._buttons(), C.error_box(m)))
+
+    def _detect_fuel(self, m):
+        """Classify fuel from the engine system name (e.g. 'R4 1.6l MPI' → petrol, 'TDI' → diesel)."""
+        try:
+            name = ""
+            for k, v in self.s.vag.identification(m):
+                if k == "System Name":
+                    name = v.upper()
+                    break
+            fuel = "diesel" if "TDI" in name else ("petrol" if any(t in name for t in
+                   ("MPI", "TSI", "TFSI", "FSI", "GTI")) else "")
+            if fuel:
+                self.s.fuel = fuel
+                veh = self.s.store.get("vehicle", {}) or {}
+                veh["fuel"] = fuel
+                self.s.store.set("vehicle", veh)
+        except ELMError:
+            pass
 
     def clear_faulty(self):
         faulty = [r for r in self.reports.values() if r.faulty]
@@ -283,6 +303,8 @@ class ModuleDialog(QDialog):
         tabs.addTab(FaultsTab(s, m, report), "Faults")
         tabs.addTab(FaultTestTab(s, m), "Fault Test")
         tabs.addTab(LiveTab(s, m), "Live Data")
+        if service.functions_for(m.address, getattr(s, "family", "vag"), getattr(s, "fuel", "")):
+            tabs.addTab(ServiceTab(s, m), "Service")
         if s.family == "vag":
             tabs.addTab(CodingTab(s, m), "Coding")
             tabs.addTab(AdaptationTab(s, m), "Adaptations")
@@ -1134,6 +1156,137 @@ class BasicDialog(QDialog):
                       fail_value=int(self.fail_val.text(), 16) if self.done_on.isChecked() and self.fail_val.text()
                       else None)
         self.accept()
+
+
+class ServiceTab(QWidget):
+    """Built-in guided VAG service functions (service.CATALOG) run through the routine/output engine.
+    Every function previews the exact UDS bytes and requires confirmation before anything is sent."""
+    PHASE = {"starting": ("Starting…", C.ACCENT), "running": ("Running — keep conditions stable", C.ACCENT),
+             "stopping": ("Stopping…", C.YELLOW), "done": ("Completed successfully", C.GREEN),
+             "failed": ("Reported failure", C.RED), "stopped": ("Stopped", C.MUTED),
+             "timedOut": ("Timed out", C.RED)}
+
+    def __init__(self, s, m):
+        super().__init__()
+        self.s, self.m = s, m
+        self.fns = service.functions_for(m.address, getattr(s, "family", "vag"), getattr(s, "fuel", ""))
+        _, l = _tab()
+        QVBoxLayout(self).addWidget(_)
+        if not self.fns:
+            l.addWidget(C.label("No built-in service functions for this module.", "muted", True))
+            l.addStretch(1)
+            return
+        l.addWidget(C.label("Guided service functions. Each previews the exact commands and asks you to "
+                            "confirm before anything is sent to the car.", "muted", True))
+        self.list = QListWidget()
+        self.list.setFixedHeight(140)
+        self.list.currentItemChanged.connect(lambda *_: self._describe())
+        l.addWidget(self.list)
+        self.desc = C.label("", "muted", True)
+        l.addWidget(self.desc)
+        self.start_btn = C.button("▶ Run", "primary", self.run)
+        self.stop_btn = C.button("■ Stop", "danger", lambda: self._stop.set())
+        l.addLayout(C.row("stretch", self.stop_btn, self.start_btn))
+        self.phase = C.label("Ready", "h2")
+        self.bar = QProgressBar()
+        self.elapsed = C.label("", "muted")
+        self.result = C.label("", "")
+        self.result.setStyleSheet("font-family: monospace;")
+        l.addWidget(C.card(self.phase, self.bar, C.row(self.elapsed, "stretch", self.result)))
+        l.addStretch(1)
+        self.sig = _Status()
+        self.sig.upd.connect(self._update)
+        self._stop = threading.Event()
+        self._running = False
+        self.current = None
+        for f in self.fns:
+            it = QListWidgetItem(f"{f.name}    ·  {f.group}")
+            it.setData(Qt.UserRole, f)
+            self.list.addItem(it)
+        self.list.setCurrentRow(0)
+        self._buttons()
+
+    def _cur(self):
+        it = self.list.currentItem()
+        return it.data(Qt.UserRole) if it else None
+
+    def _describe(self):
+        f = self._cur()
+        if not f:
+            return
+        eng = {"off": "engine off", "ignition": "ignition on, engine off",
+               "running": "engine running", "any": "ignition on"}.get(f.engine, f.engine)
+        txt = f"{f.summary}\n\nNeeds: {eng}."
+        if f.confidence == "template":
+            txt += "  ⚠ Routine ID is a common default — confirm it fits your car before running."
+        self.desc.setText(txt)
+
+    def _buttons(self):
+        self.start_btn.setEnabled(not self._running and self.s.connected)
+        self.stop_btn.setEnabled(self._running)
+
+    def run(self):
+        f = self._cur()
+        if not f:
+            return
+        pre = "\n".join(f"• {p}" for p in f.preconditions)
+        body = (f"{f.summary}\n\nConditions:\n{pre}\n\n"
+                + (f"⚠ {f.caution}\n\n" if f.caution else "")
+                + f"This will send:\n{f.preview()}")
+        if f.kind == "adaptation":
+            body += "\n\nOpen the Adaptations tab to enter and write the value."
+            C.confirm(self, f.name, body, "OK")
+            return
+        if f.kind == "procedure":
+            C.confirm(self, f.name, body, "OK")
+            return
+        if not C.confirm(self, f.name, body, "Run on car"):
+            return
+        self.current = f
+        self._stop.clear()
+        self._running = True
+        self._buttons()
+        self._update({"phase": "starting", "elapsed": 0, "result": ""})
+        b = dict(f.spec)
+        b["name"] = f.name
+
+        def work():
+            if f.kind == "output":
+                self.s.vag.run_output_test(self.m, f.spec, self._stop.is_set,
+                                           lambda msg: self.sig.upd.emit({"result": msg}))
+                return "done"
+            return self.s.vag.run_basic_setting(self.m, b, self._stop.is_set,
+                                                lambda **k: self.sig.upd.emit(k))
+
+        def done(final):
+            self._running = False
+            self._update({"phase": final or "done"})
+            self._buttons()
+
+        def fail(msg):
+            self._running = False
+            self.phase.setText(str(msg))
+            self.phase.setStyleSheet(f"color: {C.RED}")
+            self._buttons()
+
+        C.run_bg(work, done, fail)
+
+    def _update(self, k: dict):
+        if "phase" in k:
+            text, col = self.PHASE.get(k["phase"], (k["phase"], C.TEXT))
+            self.phase.setText(text)
+            self.phase.setStyleSheet(f"color: {col}")
+            if k["phase"] == "done":
+                self.bar.setValue(100)
+        if "elapsed" in k and self.current:
+            self.elapsed.setText(f"{k['elapsed']:.0f} s")
+            self.bar.setValue(int(100 * min(1, k["elapsed"] / max(1, self.current.spec.get("timeout", 60)))))
+        if "result" in k:
+            self.result.setText(f"Result: {k['result']}" if k["result"] else "")
+
+    def shutdown(self):
+        if hasattr(self, "_stop"):
+            self._stop.set()
 
 
 class BasicTab(QWidget):

@@ -50,6 +50,43 @@ class Readiness:
     monitors: list[tuple[str, bool, bool]]     # name, supported, complete
 
 
+@dataclass
+class MonitorTest:
+    mid: int                 # monitor ID
+    tid: int                 # test ID
+    value: float
+    low: float
+    high: float
+    unit: str = ""
+
+    @property
+    def passed(self) -> bool:
+        return self.low <= self.value <= self.high
+
+    @property
+    def name(self) -> str:
+        return _OBD_MID.get(self.mid, f"Monitor ${self.mid:02X}") + f" · test ${self.tid:02X}"
+
+
+# Mode 06 unit-and-scaling IDs (SAE J1979 Appendix); value = raw * scale.
+_OBD_UAS = {
+    0x01: (1.0, ""), 0x02: (0.1, ""), 0x03: (0.01, ""), 0x04: (0.001, ""),
+    0x05: (0.0000305, ""), 0x06: (0.000305, ""), 0x07: (0.25, "rpm"), 0x08: (0.01, "km/h"),
+    0x09: (1.0, "km/h"), 0x0A: (0.122, "mV"), 0x0B: (0.001, "V"), 0x0C: (0.01, "V"),
+    0x10: (1.0, "ms"), 0x12: (0.1, "s"), 0x18: (1.0, "Pa"), 0x19: (0.25, "Pa"),
+    0x1A: (1.0, "kPa"), 0x22: (0.1, "°C"), 0x27: (0.1, "%"), 0x29: (0.0000305, "%"),
+    0x2A: (0.000305, "%"), 0x30: (1.0, "count"), 0x31: (1.0, "km"),
+}
+_OBD_MID = {
+    0x01: "O2 Sensor Mon. B1S1", 0x02: "O2 Sensor Mon. B1S2", 0x05: "O2 Sensor Mon. B2S1",
+    0x06: "O2 Sensor Mon. B2S2", 0x21: "Catalyst Bank 1", 0x22: "Catalyst Bank 2",
+    0x31: "EGR Monitor", 0x39: "EVAP Monitor", 0x3B: "EVAP (0.090\")",
+    0x41: "Oxygen Sensor Heater B1", 0x42: "Oxygen Sensor Heater B2",
+    0xA1: "Misfire General", 0xA2: "Misfire Cyl.1", 0xA3: "Misfire Cyl.2",
+    0xA4: "Misfire Cyl.3", 0xA5: "Misfire Cyl.4",
+}
+
+
 def _index_after(d: list[int], mode: int, pid: int):
     for i in range(len(d) - 1):
         if d[i] == mode and d[i + 1] == pid:
@@ -242,6 +279,50 @@ class OBD:
             i = _index_after(d, 0x42, p.id)
             if i is not None and len(d) >= i + 1 + p.nbytes:
                 out[p.id] = p.decode(d[i + 1:i + 1 + p.nbytes])
+        return out
+
+    # ---------- Mode 06: on-board monitor test results ----------
+    def supported_mids(self) -> set[int]:
+        """MID 00/20/40/... bitmasks list which monitor IDs the ECU supports."""
+        out: set[int] = set()
+        for base in range(0x00, 0xA0, 0x20):
+            try:
+                d = self.elm.request(f"06{base:02X}")
+            except ELMError:
+                break
+            i = _index_after(d, 0x46, base)
+            if i is None or len(d) < i + 4:
+                break
+            mask = (d[i] << 24) | (d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3]
+            for bit in range(32):
+                if mask & (1 << (31 - bit)):
+                    out.add(base + bit + 1)
+            if not mask & 1:            # lowest bit flags "next block supported"
+                break
+        return out
+
+    def monitor_tests(self, mids: set[int] | None = None) -> list["MonitorTest"]:
+        """Decode Mode 06 results: each test's value vs min/max, with pass/fail."""
+        mids = mids if mids is not None else self.supported_mids()
+        out: list[MonitorTest] = []
+        for mid in sorted(m for m in mids if m % 0x20):
+            try:
+                d = self.elm.request(f"06{mid:02X}")
+            except ELMError:
+                continue
+            if 0x46 not in d:
+                continue
+            j = d.index(0x46) + 1       # groups: MID TID UAS val(2) min(2) max(2)
+            while j + 8 < len(d):
+                g_mid, tid, uas = d[j], d[j + 1], d[j + 2]
+                if g_mid == 0 or g_mid % 0x20 == 0:
+                    break
+                val = (d[j + 3] << 8) | d[j + 4]
+                lo = (d[j + 5] << 8) | d[j + 6]
+                hi = (d[j + 7] << 8) | d[j + 8]
+                sc, unit = _OBD_UAS.get(uas, (1.0, ""))
+                out.append(MonitorTest(g_mid, tid, val * sc, lo * sc, hi * sc, unit))
+                j += 9
         return out
 
     def mode09(self, pid: int) -> str | None:

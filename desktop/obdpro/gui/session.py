@@ -99,6 +99,7 @@ class Session(QObject):
         self._known_faults: set[str] | None = None
         veh = store.get("vehicle", {}) or {}
         self.family = catalog.FAMILY.get(veh.get("brand", "seat"), "vag")
+        self.fuel = veh.get("fuel", "")          # "petrol" / "diesel"; set during scan when known
 
     def _tool(self):
         return Hyundai(self.elm, self.family) if self.family in ("hyundai", "renault") else VAG(self.elm)

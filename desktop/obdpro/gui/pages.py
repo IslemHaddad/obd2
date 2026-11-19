@@ -435,8 +435,13 @@ class DiagnosePage(QWidget):
         self.freeze.setHorizontalHeaderLabels(["Freeze frame", "Value"])
         self.freeze.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.freeze.verticalHeader().hide()
+        self.monitors = QTableWidget(0, 3)
+        self.monitors.setHorizontalHeaderLabels(["On-board monitor (Mode 06)", "Value / range", "Result"])
+        self.monitors.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.monitors.verticalHeader().hide()
         rl.addWidget(self.ready)
         rl.addWidget(self.freeze)
+        rl.addWidget(self.monitors)
         split.addWidget(right)
         split.setSizes([700, 380])
         lay.addWidget(split, 1)
@@ -464,16 +469,16 @@ class DiagnosePage(QWidget):
                 for rp in reps:
                     F.record_faults(self.s.store, self.s.vin, "OBD:" + rp.ecu.name,
                                     [(d.code, d.kind) for d in rp.dtcs])
-                return reps, o.readiness(), o.freeze_frame(self.s.supported)
+                return reps, o.readiness(), o.freeze_frame(self.s.supported), o.monitor_tests()
 
         def done(r):
-            self.reports, ready, freeze = r
-            self.render(ready, freeze)
+            self.reports, ready, freeze, monitors = r
+            self.render(ready, freeze, monitors)
             self._busy(False)
 
         C.run_bg(work, done, lambda m: (self._busy(False), C.error_box(m)))
 
-    def render(self, ready, freeze):
+    def render(self, ready, freeze, monitors=()):
         self.tree.clear()
         for rep in sorted(self.reports, key=lambda r: not r.faulty):
             top = QTreeWidgetItem([rep.ecu.name, f"{len(rep.dtcs)} code(s)" if rep.faulty else "No faults — skipped",
@@ -501,6 +506,14 @@ class DiagnosePage(QWidget):
             p = pids.BY_ID[k]
             self.freeze.setItem(i, 0, QTableWidgetItem(p.name))
             self.freeze.setItem(i, 1, QTableWidgetItem(f"{v:.1f} {p.unit}"))
+        self.monitors.setRowCount(len(monitors))
+        for i, t in enumerate(monitors):
+            self.monitors.setItem(i, 0, QTableWidgetItem(t.name))
+            self.monitors.setItem(i, 1, QTableWidgetItem(
+                f"{t.value:g} {t.unit}  ({t.low:g}–{t.high:g})".strip()))
+            it = QTableWidgetItem("Pass" if t.passed else "Fail")
+            it.setForeground(C.QColor(C.GREEN if t.passed else C.RED))
+            self.monitors.setItem(i, 2, it)
 
     def _clear(self, reps):
         names = ", ".join(r.ecu.name for r in reps)
