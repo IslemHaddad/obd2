@@ -388,8 +388,8 @@ final class VehicleSession {
                 else { r = await svc.vagReport(m) ?? VAGReport(module: m, present: false, faults: []) }
                 if r.present { recordFaults(module: m, faults: r.faults) }
                 if m.address == "01", fuel.isEmpty, let n = r.systemName?.uppercased() {
-                    if n.contains("TDI") { fuel = "diesel" }
-                    else if ["MPI", "TSI", "TFSI", "FSI", "GTI"].contains(where: { n.contains($0) }) { fuel = "petrol" }
+                    if n.range(of: "TDI") != nil { fuel = "diesel" }
+                    else if ["MPI", "TSI", "TFSI", "FSI", "GTI"].contains(where: { n.range(of: $0) != nil }) { fuel = "petrol" }
                 }
                 out.append(r)
                 vagReports = out

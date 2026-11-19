@@ -41,7 +41,11 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD" MARKETING_VERSION="$VERSION" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee build.log | grep -E "error:|BUILD" || true
-          test -d build/Build/Products/Release-iphoneos/OBDPro.app
+          # The grep above is for readable output; verify the actual binary linked.
+          # (A Swift compile failure still leaves an OBDPro.app with only resources.)
+          test -f build/Build/Products/Release-iphoneos/OBDPro.app/OBDPro \
+            || { echo "::error::OBDPro executable missing — build did not link. See errors below:"; \
+                 grep -E "error:" build.log | sed "s#${GITHUB_WORKSPACE}/##" | sort -u | head -80; exit 1; }
 
       - name: Package IPA
         run: |

@@ -37,12 +37,12 @@ struct MonitorTest: Identifiable {
     /// SAE J1979 unit-and-scaling IDs: (scale, unit).
     static func unit(_ uas: UInt8) -> (Double, String) {
         switch uas {
-        case 0x01: (1, ""); case 0x02: (0.1, ""); case 0x03: (0.01, ""); case 0x04: (0.001, "")
-        case 0x07: (0.25, "rpm"); case 0x08: (0.01, "km/h"); case 0x09: (1, "km/h")
+        case 0x01: (1.0, ""); case 0x02: (0.1, ""); case 0x03: (0.01, ""); case 0x04: (0.001, "")
+        case 0x07: (0.25, "rpm"); case 0x08: (0.01, "km/h"); case 0x09: (1.0, "km/h")
         case 0x0A: (0.122, "mV"); case 0x0B: (0.001, "V"); case 0x0C: (0.01, "V")
-        case 0x10: (1, "ms"); case 0x12: (0.1, "s"); case 0x1A: (1, "kPa")
-        case 0x22: (0.1, "°C"); case 0x27: (0.1, "%"); case 0x30: (1, "count"); case 0x31: (1, "km")
-        default: (1, "")
+        case 0x10: (1.0, "ms"); case 0x12: (0.1, "s"); case 0x1A: (1.0, "kPa")
+        case 0x22: (0.1, "°C"); case 0x27: (0.1, "%"); case 0x30: (1.0, "count"); case 0x31: (1.0, "km")
+        default: (1.0, "")
         }
     }
     static let midNames: [UInt8: String] = [
@@ -191,7 +191,9 @@ struct OBDService {
     }
 
     func monitorTests(_ mids: Set<UInt8>? = nil) async -> [MonitorTest] {
-        let ids = (mids ?? (await supportedMIDs())).filter { $0 % 0x20 != 0 }.sorted()
+        let base: Set<UInt8>
+        if let mids { base = mids } else { base = await supportedMIDs() }
+        let ids = base.filter { $0 % 0x20 != 0 }.sorted()
         var out = [MonitorTest]()
         for mid in ids {
             guard let d = try? await elm.request(String(format: "06%02X", mid)),
