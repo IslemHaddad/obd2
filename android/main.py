@@ -858,15 +858,23 @@ class DiagnoseScreen(Screen):
 
         def work():
             with s.elm.lock:
-                return [ModuleReport(e, s.obd.dtcs_for(e)) for e in s.obd.discover_ecus()], s.obd.readiness()
+                reps = [ModuleReport(e, s.obd.dtcs_for(e)) for e in s.obd.discover_ecus()]
+                return reps, s.obd.readiness(), s.obd.monitor_tests()
 
         def done(r):
-            reps, ready = r
+            reps, ready, monitors = r
             self.out.clear_widgets()
             if ready:
                 self.out.add_widget(card(lbl(f"Check Engine light {'ON' if ready.mil_on else 'OFF'}", 16,
                                              ORANGE if ready.mil_on else GREEN, bold=True),
                                          lbl(" · ".join(f"{n}: {'✓' if c else '…'}" for n, sup, c in ready.monitors if sup), 12, MUTED)))
+            if monitors:
+                items = [lbl("[b]On-board monitors (Mode 06)[/b]", 15)]
+                for t in monitors:
+                    items.append(lbl(f"{t.name}: {t.value:g} {t.unit} ({t.low:g}–{t.high:g})  "
+                                     f"[color={'#30D158' if t.passed else '#FF453A'}]{'Pass' if t.passed else 'Fail'}[/color]",
+                                     13))
+                self.out.add_widget(card(*items))
             for rep in reps:
                 items = [lbl(f"[b]{rep.ecu.name}[/b]", 16)]
                 if not rep.dtcs:
