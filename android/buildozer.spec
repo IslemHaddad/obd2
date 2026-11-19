@@ -15,6 +15,7 @@ android.minapi = 24
 android.archs = arm64-v8a, armeabi-v7a
 android.accept_sdk_license = True
 android.enable_androidx = True
+p4a.branch = v2024.01.21
 p4a.local_recipes = p4a-recipes
 
 [buildozer]
