@@ -6,7 +6,7 @@ source.dir = .
 source.include_exts = py,png,json
 source.exclude_dirs = p4a-recipes,bin,.buildozer
 version = 1.0.0
-requirements = python3,kivy==2.3.1,pyjnius,bleak,typing_extensions
+requirements = python3,kivy==2.3.1,pyjnius,bleak,typing_extensions,filetype
 orientation = portrait
 fullscreen = 0
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,BLUETOOTH,BLUETOOTH_ADMIN,BLUETOOTH_SCAN,BLUETOOTH_CONNECT,ACCESS_FINE_LOCATION,ACCESS_COARSE_LOCATION
