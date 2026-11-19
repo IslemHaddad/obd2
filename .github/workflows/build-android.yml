@@ -21,70 +21,70 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Known-good toolchain (verified locally): Python 3.11 + buildozer 1.5.0 + Cython 0.29.36.
+      # Avoids the Python-3.14 pip bug (newer images) and the Kivy "no .c files" Cython error.
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
 
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+
+      - name: System packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git zip unzip autoconf libtool pkg-config \
+            zlib1g-dev libncurses-dev cmake libffi-dev libssl-dev build-essential ccache
+
+      - name: Buildozer + Cython (pinned)
+        run: pip install "buildozer==1.5.0" "cython==0.29.36" bleak
+
       - name: Bundle the shared diagnostic core + bleak Android backend
         run: |
-          pip install --quiet bleak
           rsync -a --exclude gui --exclude app.py --exclude __pycache__ desktop/obdpro/ android/obdpro/
           B=$(python -c "import bleak,os;print(os.path.dirname(bleak.__file__))")
           mkdir -p android/p4a-recipes
           cp -r "$B/backends/p4android/recipes/bleak" android/p4a-recipes/
           sed -i "s/^version = .*/version = 1.0.${BUILD}/" android/buildozer.spec
 
-      - name: Cache Buildozer global dir (keeps the debug keystore stable so updates install over old)
+      - name: Cache SDK/NDK + debug keystore (stable signature so updates install over old)
         uses: actions/cache@v4
         with:
-          path: buildozer-home
-          key: buildozer-global-v3
+          path: ~/.buildozer
+          key: buildozer-sdk-v4
 
-      # Official kivy/buildozer image: Android SDK/NDK, python-for-android, Cython and buildozer pre-installed.
       - name: Build APK
+        working-directory: android
         run: |
-          mkdir -p buildozer-home
           set -o pipefail
-          docker run --rm \
-            --user root \
-            -e HOME=/home/user \
-            -v "$PWD/android":/home/user/hostcwd \
-            -v "$PWD/buildozer-home":/home/user/.buildozer \
-            kivy/buildozer android debug 2>&1 | tee build.log
+          buildozer android debug 2>&1 | tee build.log
 
-      - name: Publish build errors (readable without login)
+      - name: Publish build errors on failure (readable without login)
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           { echo "Android build ${BUILD} failed at ${GITHUB_SHA}"; echo '```';
-            grep -iE "error|exception|traceback|no such|not found|failed|could not|aidl|recipe" build.log \
-              | grep -viE "badsyntax|performance hint|from __future__|future feature|not a chance|uft-8|utf8 with BOM|rested_snopes|leading zeros|invalid character|unicode error|unknown encoding|encoding problem" \
+            grep -iE "error|exception|traceback|no such|could not|not found|build failed|aidl" android/build.log \
+              | grep -viE "badsyntax|performance hint|from __future__|future feature|not a chance|uft-8|utf8 with BOM|rested_snopes|leading zeros|invalid character|unicode error|unknown encoding|encoding problem|-Werror|Wunreachable|implicit-function|dbg" \
               | tail -50;
-            echo ----; tail -60 build.log; echo '```'; } > errors.md 2>/dev/null || echo "no log" > errors.md
+            echo ----; tail -60 android/build.log; echo '```'; } > errors.md 2>/dev/null || echo "no log" > errors.md
           gh release delete android-ci-errors --yes --cleanup-tag 2>/dev/null || true
           gh release create android-ci-errors --prerelease --latest=false --title "Android CI errors" --notes-file errors.md --target "$GITHUB_SHA"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: apk
-          path: android/bin/*.apk
-
-  release:
-    needs: apk
-    if: success() && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    env:
-      BUILD: ${{ github.run_number }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { name: apk, path: apk }
-      - name: Publish stable download link
+      - name: Publish APK (stable download link)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cp apk/*.apk OBDPro-android.apk
+          cp android/bin/*.apk OBDPro-android.apk
           gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
           gh release create android-latest OBDPro-android.apk --latest=false \
             --title "OBD Pro for Android (build ${BUILD})" \
             --notes "Install: open this page on the Android phone, download OBDPro-android.apk, allow 'Install unknown apps' when asked, then install. To update, install the new APK over the old one." \
             --target "$GITHUB_SHA"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apk
+          path: android/bin/*.apk
