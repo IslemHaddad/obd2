@@ -6,7 +6,6 @@ struct AdaptationsView: View {
     @Environment(VehicleSession.self) private var s
     let module: VAGModule
     @State private var editing: Adaptation?
-    @State private var scanning = false
 
     private var items: [Adaptation] { s.adaptations.filter { $0.module == module.address } }
 
@@ -16,9 +15,7 @@ struct AdaptationsView: View {
                 ContentUnavailableView {
                     Label("No adaptations", systemImage: "dial.low")
                 } description: {
-                    Text("Scan the module for identifiers or add a known channel.")
-                } actions: {
-                    Button("Scan Module") { scanning = true }.buttonStyle(.borderedProminent)
+                    Text("Add a known adaptation channel for this module.")
                 }
             }
             ForEach(items) { a in
@@ -35,18 +32,10 @@ struct AdaptationsView: View {
         .navigationTitle("Adaptations · \(module.address)")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { scanning = true } label: { Image(systemName: "magnifyingglass") }
                 Button { editing = Adaptation(module: module.address, did: 0, name: "") } label: { Image(systemName: "plus") }
             }
         }
         .sheet(item: $editing) { AdaptationEditor(adaptation: $0) }
-        .sheet(isPresented: $scanning) {
-            DIDScanner(module: module) { did, p in
-                editing = Adaptation(module: module.address, did: did, name: "",
-                                     kind: p.count == 1 ? .number : p.allSatisfy({ (0x20...0x7E).contains($0) }) ? .ascii : .hex,
-                                     length: min(p.count, 4))
-            }
-        }
     }
 }
 
@@ -225,150 +214,5 @@ struct AdaptationDetail: View {
             } catch { self.error = error.localizedDescription }
             busy = false
         }
-    }
-}
-
-// MARK: - Output tests
-
-struct OutputTestsView: View {
-    @Environment(VehicleSession.self) private var s
-    let module: VAGModule
-    @State private var editing: OutputTest?
-
-    private var tests: [OutputTest] { s.outputTests.filter { $0.module == module.address } }
-
-    var body: some View {
-        List {
-            if tests.isEmpty {
-                ContentUnavailableView {
-                    Label("No output tests", systemImage: "play.circle")
-                } description: {
-                    Text("Add an I/O control identifier or routine for this module.")
-                } actions: {
-                    Button("Add Test") { editing = OutputTest(module: module.address, name: "", identifier: 0) }
-                        .buttonStyle(.borderedProminent)
-                }
-            }
-            if let e = s.testError {
-                Label(e, systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.subheadline)
-            }
-            ForEach(tests) { t in
-                OutputTestRow(test: t, module: module)
-                    .swipeActions(edge: .leading) { Button("Edit") { editing = t }.tint(.blue) }
-            }
-            .onDelete { idx in let ids = idx.map { tests[$0].id }; s.outputTests.removeAll { ids.contains($0.id) } }
-        }
-        .navigationTitle("Output Tests · \(module.address)")
-        .toolbar {
-            Button { editing = OutputTest(module: module.address, name: "", identifier: 0) } label: { Image(systemName: "plus") }
-                .disabled(s.activeTest != nil)
-        }
-        .sheet(item: $editing) { OutputTestEditor(test: $0) }
-        .onDisappear { s.stopOutputTest() }
-    }
-}
-
-struct OutputTestRow: View {
-    @Environment(VehicleSession.self) private var s
-    let test: OutputTest
-    let module: VAGModule
-
-    private var mine: Bool { s.activeTest == test.id }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                if mine, case .running = s.testState {
-                    Circle().fill(Color.yellow.opacity(0.25)).frame(width: 44, height: 44)
-                        .phaseAnimator([1.0, 1.3]) { v, k in v.scaleEffect(k) } animation: { _ in .easeInOut(duration: 0.6) }
-                }
-                Image(systemName: mine ? "bolt.fill" : "bolt")
-                    .font(.title3).foregroundStyle(mine ? .yellow : .secondary)
-            }
-            .frame(width: 44, height: 44)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(test.name).font(.subheadline.weight(.semibold))
-                Text("\(test.method == .ioControl ? "2F" : "31") \(test.idHex) \(test.dataHex)")
-                    .font(.caption2.monospaced()).foregroundStyle(.secondary)
-                if mine { statusText.font(.caption).foregroundStyle(.yellow) }
-            }
-            Spacer()
-            if mine {
-                Button("Stop") { s.stopOutputTest() }
-                    .buttonStyle(.borderedProminent).tint(.red)
-                    .disabled(s.testState == .stopping)
-            } else {
-                Button("Start") { s.startOutputTest(test, module) }
-                    .buttonStyle(.bordered)
-                    .disabled(s.activeTest != nil || s.state != .connected)
-            }
-        }
-        .sensoryFeedback(.impact(weight: .heavy), trigger: mine)
-    }
-
-    @ViewBuilder private var statusText: some View {
-        switch s.testState {
-        case .starting: Text("Starting…")
-        case .running(let r, let resp): Text(String(format: "Running · %.0fs left · %@", max(r, 0), resp))
-        case .stopping: Text("Stopping…")
-        case nil: EmptyView()
-        }
-    }
-}
-
-struct OutputTestEditor: View {
-    @Environment(VehicleSession.self) private var s
-    @Environment(\.dismiss) private var dismiss
-    @State var test: OutputTest
-    @State private var idText = ""
-    @State private var dataText = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Test") {
-                    TextField("Name (e.g. Radiator fan)", text: $test.name)
-                    Picker("Method", selection: $test.method) {
-                        ForEach(OutputTest.Method.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    TextField(test.method == .ioControl ? "DID (hex)" : "Routine ID (hex)", text: $idText)
-                        .font(.body.monospaced()).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    TextField("Control data (hex, optional)", text: $dataText)
-                        .font(.body.monospaced()).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                }
-                Section("Auto-stop") {
-                    Stepper(String(format: "%.0f seconds", test.duration), value: $test.duration, in: 1...120, step: 1)
-                }
-                Section("Commands") {
-                    LabeledContent("Start", value: preview.startCommand).font(.caption.monospaced())
-                    LabeledContent("Stop", value: preview.stopCommand).font(.caption.monospaced())
-                }
-            }
-            .navigationTitle(test.name.isEmpty ? "New Output Test" : test.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let t = preview
-                        if let i = s.outputTests.firstIndex(where: { $0.id == t.id }) { s.outputTests[i] = t }
-                        else { s.outputTests.append(t) }
-                        dismiss()
-                    }
-                    .disabled(UInt16(idText, radix: 16) == nil || test.name.isEmpty)
-                }
-            }
-            .onAppear {
-                idText = test.identifier == 0 ? "" : test.idHex
-                dataText = test.dataHex
-            }
-        }
-    }
-
-    private var preview: OutputTest {
-        var t = test
-        t.identifier = UInt16(idText, radix: 16) ?? 0
-        t.data = ELM327.hexBytes(dataText)
-        return t
     }
 }

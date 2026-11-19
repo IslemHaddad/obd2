@@ -89,13 +89,22 @@ struct FaultEvent: Codable, Identifiable, Hashable {
     let vin: String
     let module: String
     let moduleName: String
-    let code: String          // "" = module OK, "CLEARED" = clear event
+    var code: String          // "" = module OK, "CLEARED" = clear event
     let state: String
 
     private static let key = "faults.history.v1"
     static func load() -> [FaultEvent] {
-        guard let d = UserDefaults.standard.data(forKey: key) else { return [] }
-        return (try? JSONDecoder().decode([FaultEvent].self, from: d)) ?? []
+        guard let d = UserDefaults.standard.data(forKey: key),
+              var e = try? JSONDecoder().decode([FaultEvent].self, from: d) else { return [] }
+        // Older builds stored VW body/chassis faults as 6 hex digits; now they're VW fault numbers (decimal).
+        // A decimal number never starts with 0 and has no letters, so those two markers identify the old hex form.
+        for i in e.indices {
+            let c = e[i].code
+            guard c.count == 6, c.allSatisfy(\.isHexDigit), c.hasPrefix("0") || c.contains(where: \.isLetter),
+                  let v = UInt32(c, radix: 16) else { continue }
+            e[i].code = String(v)
+        }
+        return e
     }
     static func save(_ e: [FaultEvent]) {
         if let d = try? JSONEncoder().encode(Array(e.suffix(4000))) { UserDefaults.standard.set(d, forKey: key) }

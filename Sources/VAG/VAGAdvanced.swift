@@ -178,17 +178,4 @@ extension OBDService {
             throw error
         }
     }
-
-    /// Probes a DID range; returns the ones that answer positively.
-    func scanDIDs(_ m: VAGModule, _ range: ClosedRange<UInt16>, progress: (Double, Int) async -> Bool) async -> [(UInt16, [UInt8])] {
-        await vagOpen(m)
-        var found = [(UInt16, [UInt8])]()
-        let total = Double(range.count)
-        for (i, did) in range.enumerated() {
-            if let p = try? await readDID(did, timeout: 0.4) { found.append((did, p)) }
-            if i % 8 == 0, await !progress(Double(i) / total, found.count) { break }
-        }
-        await vagClose()
-        return found
-    }
 }

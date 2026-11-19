@@ -115,6 +115,14 @@ extension OBDService {
         return VAGReport(module: m, present: true, faults: uniq, partNumber: part, systemName: serial)
     }
 
+    /// Fault list of a discovered (Hyundai/Kia/Renault) module whose channel is already open.
+    func discoveredFaultsOpen(_ m: VAGModule) async -> [VAGFault]? {
+        let uds = await hyUDSFaults()
+        if uds.inExtended { _ = try? await session(0x01) }
+        if let f = uds.faults { return f }
+        return await hyKWPFaults()
+    }
+
     private func hyText(uds: UInt16, kwp: UInt8) async -> String? {
         if let p = try? await readDID(uds) {
             var q = p

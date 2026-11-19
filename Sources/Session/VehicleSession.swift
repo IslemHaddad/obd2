@@ -114,6 +114,10 @@ final class VehicleSession {
     }
     var basicRun: BasicRun?
     private var basicStopRequested = false
+
+    // Fault test (watch one module live while the user operates it) & coding capability
+    var faultTest: FaultTestRun?
+    var codingAbility: [String: CodingAbility] = CodingAbility.load() { didSet { CodingAbility.save(codingAbility) } }
     var readiness: ReadinessStatus?
     var freeze = [UInt8: Double]()
     var vin: String?
@@ -128,7 +132,7 @@ final class VehicleSession {
     private var transport: OBDTransport?
     private var elm: ELM327?
     var service: OBDService? { elm.map(OBDService.init) }
-    private var pollTask: Task<Void, Never>?
+    var pollTask: Task<Void, Never>?
     private let historyLimit = 120
 
     var supportedPIDs: [PID] { PIDs.all.filter { supported.isEmpty || supported.contains($0.id) } + (vagSupported ? [PIDs.oilTemp] : []) }
@@ -445,10 +449,6 @@ final class VehicleSession {
         }
     }
 
-    func scanDIDs(_ m: VAGModule, _ range: ClosedRange<UInt16>, progress: @escaping (Double, Int) async -> Bool) async -> [(UInt16, [UInt8])] {
-        (await exclusive { svc in await svc.scanDIDs(m, range, progress: progress) }) ?? []
-    }
-
     func readIdentification(_ m: VAGModule) async -> [(String, String)] {
         if family.discovered {
             return (await exclusive { svc in await svc.hyundaiIdentification(m) }) ?? []
@@ -457,8 +457,9 @@ final class VehicleSession {
             await svc.vagOpen(m)
             var out = [(String, String)]()
             for (did, name) in StandardDID.all {
-                if let p = try? await svc.readDID(did) {
-                    let ascii = p.allSatisfy { (0x20...0x7E).contains($0) || $0 == 0 }
+                if var p = try? await svc.readDID(did) {
+                    if did != 0x0600 { while let l = p.last, [0x00, 0xAA, 0xFF].contains(l) { p.removeLast() } }   // VW padding
+                    let ascii = did != 0x0600 && !p.isEmpty && p.allSatisfy { (0x20...0x7E).contains($0) || $0 == 0 }
                     out.append((name, ascii ? String(decoding: p.filter { $0 != 0 }, as: UTF8.self).trimmingCharacters(in: .whitespaces)
                                             : p.map { String(format: "%02X", $0) }.joined()))
                 }

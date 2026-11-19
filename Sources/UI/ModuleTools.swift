@@ -6,7 +6,6 @@ struct ModuleLiveView: View {
     @Environment(VehicleSession.self) private var s
     let module: VAGModule
     @State private var editing: Measurement?
-    @State private var scanning = false
 
     private var defs: [Measurement] { s.measurements.filter { $0.module == module.address } }
 
@@ -14,11 +13,9 @@ struct ModuleLiveView: View {
         List {
             if defs.isEmpty {
                 ContentUnavailableView {
-                    Label("No measurements", systemImage: "waveform.path.ecg")
+                    Label("No live values yet", systemImage: "waveform.path.ecg")
                 } description: {
-                    Text("Scan the module for data identifiers, or add one manually.")
-                } actions: {
-                    Button("Scan Module") { scanning = true }.buttonStyle(.borderedProminent)
+                    Text("No live values are known for this module yet.")
                 }
             }
             ForEach(defs) { d in
@@ -50,12 +47,10 @@ struct ModuleLiveView: View {
         .navigationTitle("Live · \(module.address)")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { scanning = true } label: { Image(systemName: "magnifyingglass") }
                 Button { editing = Measurement(module: module.address, did: 0, name: "") } label: { Image(systemName: "plus") }
             }
         }
         .sheet(item: $editing) { MeasurementEditor(measurement: $0) }
-        .sheet(isPresented: $scanning) { DIDScanner(module: module) }
         .onAppear { s.startVAGLive(module) }
         .onDisappear { s.stopVAGLive() }
     }
@@ -108,78 +103,6 @@ struct MeasurementEditor: View {
                 }
             }
             .onAppear { didText = measurement.did == 0 ? "" : measurement.didHex }
-        }
-    }
-}
-
-struct DIDScanner: View {
-    @Environment(VehicleSession.self) private var s
-    @Environment(\.dismiss) private var dismiss
-    let module: VAGModule
-    var onPick: ((UInt16, [UInt8]) -> Void)? = nil
-    @State private var from = "0100"
-    @State private var to = "04FF"
-    @State private var progress: Double?
-    @State private var found: [(UInt16, [UInt8])] = []
-    @State private var stop = false
-    @State private var adding: Measurement?
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Range (hex)") {
-                    HStack {
-                        TextField("From", text: $from); Text("–"); TextField("To", text: $to)
-                    }
-                    .font(.body.monospaced()).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    if let p = progress {
-                        ProgressView(value: p) { Text("Probing… \(found.count) found").font(.caption) }
-                        Button("Stop", role: .destructive) { stop = true }
-                    } else {
-                        Button("Start Scan") { start() }.disabled(range == nil || s.state != .connected)
-                    }
-                }
-                if !found.isEmpty {
-                    Section("Responding identifiers — tap to add") {
-                        ForEach(found, id: \.0) { did, p in
-                            Button {
-                                if let onPick { onPick(did, p); dismiss(); return }
-                                adding = Measurement(module: module.address, did: did, name: "",
-                                                     kind: p.count > 4 ? .hex : .number, length: min(max(p.count, 1), 2) == 1 ? 1 : 2)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(String(format: "%04X", did)).font(.headline.monospaced())
-                                    Text(p.prefix(24).map { String(format: "%02X", $0) }.joined(separator: " "))
-                                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Scan \(module.name)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("Done") { stop = true; dismiss() } }
-            .sheet(item: $adding) { MeasurementEditor(measurement: $0) }
-        }
-    }
-
-    private var range: ClosedRange<UInt16>? {
-        guard let a = UInt16(from, radix: 16), let b = UInt16(to, radix: 16), a <= b else { return nil }
-        return a...b
-    }
-
-    private func start() {
-        guard let r = range else { return }
-        stop = false; found = []; progress = 0
-        Task {
-            let res = await s.scanDIDs(module, r) { p, _ in
-                await MainActor.run { progress = p }
-                return await MainActor.run { !stop }
-            }
-            found = res
-            progress = nil
         }
     }
 }

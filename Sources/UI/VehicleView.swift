@@ -326,29 +326,31 @@ struct ModuleDetail: View {
                         if let p = r.partNumber { LabeledContent("Part No.", value: p).monospaced() }
                     }
                     Section("Tools") {
+                        NavigationLink { FaultTestView(module: r.module) } label: {
+                            Label("Fault Test", systemImage: "stethoscope")
+                        }
                         NavigationLink { ModuleLiveView(module: r.module) } label: { Label("Live Data", systemImage: "waveform.path.ecg") }
                         if s.family == .vag {
-                            NavigationLink { ModuleCodingView(module: r.module) } label: { Label("Coding", systemImage: "slider.horizontal.below.square.and.square.filled") }
+                            NavigationLink { CodingGateView(module: r.module) } label: {
+                                HStack {
+                                    Label("Coding", systemImage: "slider.horizontal.below.square.and.square.filled")
+                                    Spacer()
+                                    if let a = s.codingAbility[s.codingKey(r.module)], a != .yes {
+                                        Text(a.label).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
                             NavigationLink { AdaptationsView(module: r.module) } label: { Label("Adaptations", systemImage: "dial.low") }
                         }
                         NavigationLink { BasicSettingsView(module: r.module) } label: { Label("Basic Settings", systemImage: "gearshape.arrow.triangle.2.circlepath") }
-                        NavigationLink { OutputTestsView(module: r.module) } label: { Label("Output Tests", systemImage: "play.circle") }
                         NavigationLink { ModuleIdentView(module: r.module) } label: { Label("Identification", systemImage: "info.circle") }
                     }
                     .disabled(s.state != .connected)
-                    Section(r.faulty ? "Faults" : "Status") {
+                    Section(r.faulty ? "Faults — tap for details" : "Status") {
                         if !r.faulty { Label("No faults stored", systemImage: "checkmark.seal.fill").foregroundStyle(.green) }
                         ForEach(r.faults) { f in
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(f.code).font(.headline.monospaced())
-                                    Spacer()
-                                    Text(f.state)
-                                        .font(.caption2.bold()).padding(.horizontal, 7).padding(.vertical, 2)
-                                        .background((f.active ? r.module.category.color : .gray).opacity(0.25), in: Capsule())
-                                }
-                                Text(f.description).font(.subheadline)
-                                Text(f.detail).font(.caption).foregroundStyle(.secondary)
+                            NavigationLink { FaultDetailView(fault: f, module: r.module) } label: {
+                                FaultRow(fault: f, module: r.module)
                             }
                         }
                     }

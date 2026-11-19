@@ -175,25 +175,18 @@ struct VAGFault: Identifiable, Hashable {
     var raw: UInt32 = 0
     var powertrain = true
     var id: String { dtc + String(format: "%02X", failureType) }
-    var code: String { powertrain ? String(format: "%@ %02X", dtc, failureType) : String(format: "%06X", raw) }
+    /// VW body/chassis modules: the VW fault number (decimal, as VCDS/OBDeleven show it). Powertrain: SAE code.
+    var code: String { powertrain ? String(format: "%@ %02X", dtc, failureType) : String(raw) }
     var active: Bool { status & 0x01 != 0 }
     var confirmed: Bool { status & 0x08 != 0 }
     var state: String { active ? "Active" : confirmed ? "Stored" : status & 0x04 != 0 ? "Pending" : "Intermittent" }
     var description: String {
-        powertrain ? DTCDatabase.describe(dtc) : "Module-specific fault (SAE form \(dtc)-\(String(format: "%02X", failureType)))"
+        if powertrain, let k = DTCDatabase.known[dtc] { return k }
+        return "\(FaultKnowledge.category(failureType).name): \(FaultKnowledge.ftbText(failureType))"
     }
-    var detail: String { VAGFault.ftb[failureType] ?? String(format: "Fault type %02X", failureType) }
-
-    static let ftb: [UInt8: String] = [
-        0x00: "No sub-type", 0x01: "General electrical failure", 0x02: "General signal failure",
-        0x11: "Short to ground", 0x12: "Short to battery", 0x13: "Open circuit",
-        0x14: "Short to ground or open", 0x15: "Short to battery or open",
-        0x16: "Voltage below threshold", 0x17: "Voltage above threshold",
-        0x1C: "Voltage out of range", 0x29: "Signal invalid", 0x31: "No signal",
-        0x54: "Missing calibration", 0x55: "Not configured", 0x62: "Signal compare failure",
-        0x64: "Signal plausibility failure", 0x87: "Missing message", 0x88: "Bus off",
-        0x96: "Component internal failure", 0x98: "Over temperature",
-    ]
+    var detail: String {
+        (powertrain ? "" : "\(dtc) \(String(format: "%02X", failureType)) · ") + FaultKnowledge.flags(status).joined(separator: " · ")
+    }
 }
 
 // MARK: - Hyundai / Kia modules (11-bit CAN, response = request + 8). Names are best-effort labels;

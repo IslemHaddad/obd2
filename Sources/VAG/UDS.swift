@@ -25,16 +25,15 @@ extension OBDService {
         return nil
     }
 
-    /// Reads one module. Returns nil when the module is not fitted / not answering.
-    func vagReport(_ m: VAGModule) async -> VAGReport? {
-        await vagOpen(m)
+    /// Reads the fault list of a module whose channel is already open (19 02 2F, falls back to FF).
+    func vagFaultsOpen(_ m: VAGModule) async -> [VAGFault]? {
         // Ask only for real faults (mask 2F). Listing all supported DTCs (FF) can be hundreds of records that
         // cheap ELM clones truncate, and most of them are just "test not completed" (status 0x10).
         var resp = try? await elm.requestUDS(String(format: "1902%02X", VAGFault.faultMask), timeout: 2)
         if let d = resp, positive(d, sid: 0x59, sub: 0x02) == nil, d.first == 0x7F {
             resp = try? await elm.requestUDS("1902FF", timeout: 2)
         }
-        guard let d = resp, let r = positive(d, sid: 0x59, sub: 0x02) else { await vagClose(); return nil }
+        guard let d = resp, let r = positive(d, sid: 0x59, sub: 0x02) else { return nil }
         var faults = [VAGFault]()
         let rec = Array(r.dropFirst(3))           // 59 02 <availabilityMask>
         var j = 0
@@ -47,6 +46,13 @@ extension OBDService {
                !faults.contains(where: { $0.id == f.id }) { faults.append(f) }
             j += 4
         }
+        return faults
+    }
+
+    /// Reads one module. Returns nil when the module is not fitted / not answering.
+    func vagReport(_ m: VAGModule) async -> VAGReport? {
+        await vagOpen(m)
+        guard let faults = await vagFaultsOpen(m) else { await vagClose(); return nil }
         let part = await readID(0xF187)
         let name = await readID(0xF197)
         await vagClose()
