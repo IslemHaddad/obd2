@@ -64,6 +64,22 @@ struct DiagnosticsView: View {
                         }
                     }
                 }
+                if !s.monitors.isEmpty {
+                    Section("On-board Monitors (Mode 06)") {
+                        ForEach(s.monitors) { t in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(t.name).font(.subheadline)
+                                    Spacer()
+                                    Text(t.passed ? "Pass" : "Fail").font(.caption.weight(.semibold))
+                                        .foregroundStyle(t.passed ? .green : .red)
+                                }
+                                Text(String(format: "%g %@  (%g–%g)", t.value, t.unit, t.low, t.high))
+                                    .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             }
             .navigationTitle("Diagnostics")
             .toolbar {

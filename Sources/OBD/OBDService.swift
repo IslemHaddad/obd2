@@ -21,6 +21,37 @@ struct ReadinessStatus {
     let monitors: [ReadinessMonitor]
 }
 
+struct MonitorTest: Identifiable {
+    let mid: UInt8
+    let tid: UInt8
+    let value: Double
+    let low: Double
+    let high: Double
+    var unit: String = ""
+    var id: String { String(format: "%02X-%02X", mid, tid) }
+    var passed: Bool { low <= value && value <= high }
+    var name: String {
+        (MonitorTest.midNames[mid] ?? String(format: "Monitor $%02X", mid)) + String(format: " · test $%02X", tid)
+    }
+
+    /// SAE J1979 unit-and-scaling IDs: (scale, unit).
+    static func unit(_ uas: UInt8) -> (Double, String) {
+        switch uas {
+        case 0x01: (1, ""); case 0x02: (0.1, ""); case 0x03: (0.01, ""); case 0x04: (0.001, "")
+        case 0x07: (0.25, "rpm"); case 0x08: (0.01, "km/h"); case 0x09: (1, "km/h")
+        case 0x0A: (0.122, "mV"); case 0x0B: (0.001, "V"); case 0x0C: (0.01, "V")
+        case 0x10: (1, "ms"); case 0x12: (0.1, "s"); case 0x1A: (1, "kPa")
+        case 0x22: (0.1, "°C"); case 0x27: (0.1, "%"); case 0x30: (1, "count"); case 0x31: (1, "km")
+        default: (1, "")
+        }
+    }
+    static let midNames: [UInt8: String] = [
+        0x01: "O2 Sensor B1S1", 0x02: "O2 Sensor B1S2", 0x05: "O2 Sensor B2S1", 0x06: "O2 Sensor B2S2",
+        0x21: "Catalyst Bank 1", 0x22: "Catalyst Bank 2", 0x31: "EGR Monitor", 0x39: "EVAP Monitor",
+        0x41: "O2 Heater B1", 0x42: "O2 Heater B2", 0xA1: "Misfire General",
+        0xA2: "Misfire Cyl.1", 0xA3: "Misfire Cyl.2", 0xA4: "Misfire Cyl.3", 0xA5: "Misfire Cyl.4"]
+}
+
 /// High-level OBD-II services on top of the ELM327 channel.
 struct OBDService {
     let elm: ELM327
@@ -140,6 +171,43 @@ struct OBDService {
             guard let d = try? await elm.request("02\(p.hex)00"),
                   let i = indexAfter(d, 0x42, p.id), d.count >= i + 1 + p.bytes else { continue }
             out[p.id] = p.decode(Array(d[(i + 1)..<(i + 1 + p.bytes)]))
+        }
+        return out
+    }
+
+    // MARK: Mode 06 — on-board monitor test results
+    func supportedMIDs() async -> Set<UInt8> {
+        var set = Set<UInt8>()
+        var base: UInt8 = 0x00
+        while base < 0xA0 {
+            guard let d = try? await elm.request(String(format: "06%02X", base)),
+                  let i = indexAfter(d, 0x46, base), d.count >= i + 4 else { break }
+            let mask = UInt32(d[i]) << 24 | UInt32(d[i+1]) << 16 | UInt32(d[i+2]) << 8 | UInt32(d[i+3])
+            for bit in 0..<32 where mask & (1 << (31 - bit)) != 0 { set.insert(base &+ UInt8(bit + 1)) }
+            guard mask & 1 != 0 else { break }
+            base &+= 0x20
+        }
+        return set
+    }
+
+    func monitorTests(_ mids: Set<UInt8>? = nil) async -> [MonitorTest] {
+        let ids = (mids ?? (await supportedMIDs())).filter { $0 % 0x20 != 0 }.sorted()
+        var out = [MonitorTest]()
+        for mid in ids {
+            guard let d = try? await elm.request(String(format: "06%02X", mid)),
+                  let start = d.firstIndex(of: 0x46) else { continue }
+            var j = start + 1
+            while j + 8 < d.count {
+                let gMid = d[j], tid = d[j + 1], uas = d[j + 2]
+                if gMid == 0 || gMid % 0x20 == 0 { break }
+                let val = UInt16(d[j + 3]) << 8 | UInt16(d[j + 4])
+                let lo = UInt16(d[j + 5]) << 8 | UInt16(d[j + 6])
+                let hi = UInt16(d[j + 7]) << 8 | UInt16(d[j + 8])
+                let (sc, unit) = MonitorTest.unit(uas)
+                out.append(MonitorTest(mid: gMid, tid: tid, value: Double(val) * sc,
+                                       low: Double(lo) * sc, high: Double(hi) * sc, unit: unit))
+                j += 9
+            }
         }
         return out
     }

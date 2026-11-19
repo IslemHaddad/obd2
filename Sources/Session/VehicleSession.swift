@@ -53,6 +53,7 @@ final class VehicleSession {
     var vagModules: [VAGModule] = VAGModule.all
     var discoverProgress: (Double, Int)?
     var family: VAGBrand.Family { vehicle?.brand.family ?? .vag }
+    var fuel: String = ""                       // "petrol" / "diesel"; detected from engine system name
 
     // Extras (dashboard, alerts, history, report)
     var oilTemp: Double?
@@ -120,6 +121,7 @@ final class VehicleSession {
     var codingAbility: [String: CodingAbility] = CodingAbility.load() { didSet { CodingAbility.save(codingAbility) } }
     var readiness: ReadinessStatus?
     var freeze = [UInt8: Double]()
+    var monitors = [MonitorTest]()
     var vin: String?
     var calID: String?
     var ecuName: String?
@@ -345,6 +347,7 @@ final class VehicleSession {
             modules = out
             readiness = await svc.readiness()
             freeze = await svc.freezeFrame(supportedPIDs)
+            monitors = await svc.monitorTests()
         }
     }
 
@@ -384,6 +387,10 @@ final class VehicleSession {
                 if family.discovered { r = await svc.hyundaiReport(m) }
                 else { r = await svc.vagReport(m) ?? VAGReport(module: m, present: false, faults: []) }
                 if r.present { recordFaults(module: m, faults: r.faults) }
+                if m.address == "01", fuel.isEmpty, let n = r.systemName?.uppercased() {
+                    if n.contains("TDI") { fuel = "diesel" }
+                    else if ["MPI", "TSI", "TFSI", "FSI", "GTI"].contains(where: { n.contains($0) }) { fuel = "petrol" }
+                }
                 out.append(r)
                 vagReports = out
             }

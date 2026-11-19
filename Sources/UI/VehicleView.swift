@@ -330,6 +330,11 @@ struct ModuleDetail: View {
                             Label("Fault Test", systemImage: "stethoscope")
                         }
                         NavigationLink { ModuleLiveView(module: r.module) } label: { Label("Live Data", systemImage: "waveform.path.ecg") }
+                        if !ServiceFn.functions(for: r.module.address, family: s.family, fuel: s.fuel).isEmpty {
+                            NavigationLink { ServiceView(module: r.module) } label: {
+                                Label("Service Functions", systemImage: "wrench.and.screwdriver.fill")
+                            }
+                        }
                         if s.family == .vag {
                             NavigationLink { CodingGateView(module: r.module) } label: {
                                 HStack {
