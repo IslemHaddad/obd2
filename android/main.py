@@ -221,6 +221,119 @@ class FaultTestPopup(Popup):
             Clock.schedule_once(lambda *_: self.on_done(t.last), 1.0)
 
 
+class ServicePopup(Popup):
+    """Built-in guided VAG service functions. Each previews the exact UDS bytes and asks for
+    confirmation before anything is sent; routine functions run on the shared run_basic_setting engine."""
+
+    PHASE = {"starting": ("Starting…", ACCENT), "running": ("Running — keep conditions stable", ACCENT),
+             "stopping": ("Stopping…", ORANGE), "done": ("Completed successfully", GREEN),
+             "failed": ("Reported failure", RED), "stopped": ("Stopped", MUTED), "timedOut": ("Timed out", RED)}
+
+    def __init__(self, s, module, fuel=""):
+        from obdpro import service
+        self.s, self.module = s, module
+        self.fns = service.functions_for(module.address, s.family, fuel)
+        self._stop = threading.Event()
+        self._running = False
+        self.box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
+        super().__init__(title=f"Service · {module.name}", content=self.box, size_hint=(0.95, 0.9), auto_dismiss=False)
+        self._list()
+
+    def _list(self):
+        self.box.clear_widgets()
+        sv, col = scroller()
+        col.add_widget(lbl("Guided service functions. Each previews the exact commands and asks you to "
+                           "confirm before anything is sent to the car.", 12, MUTED))
+        for f in self.fns:
+            b = btn(f"[b]{f.name}[/b]   [color=#8E8E93]· {f.group}[/color]\n{f.summary}",
+                    lambda ff=f: self._detail(ff))
+            b.markup, b.halign, b.height = True, "left", dp(72)
+            b.bind(width=lambda w, *_: setattr(w, "text_size", (w.width - dp(20), None)))
+            col.add_widget(b)
+        self.box.add_widget(sv)
+        self.box.add_widget(btn("Close", self.dismiss))
+
+    def _detail(self, f):
+        self.box.clear_widgets()
+        sv, col = scroller()
+        eng = {"off": "engine off", "ignition": "ignition on, engine off",
+               "running": "engine running", "any": "ignition on"}.get(f.engine, f.engine)
+        col.add_widget(lbl(f"[b]{f.name}[/b]", 18))
+        col.add_widget(lbl(f.summary, 14))
+        col.add_widget(lbl(f"[b]Needs:[/b] {eng}", 14))
+        for p in f.preconditions:
+            col.add_widget(lbl(f"· {p}", 13, MUTED))
+        col.add_widget(lbl("[b]Steps[/b]", 14))
+        for i, st in enumerate(f.steps, 1):
+            col.add_widget(lbl(f"{i}. {st}", 13))
+        if f.caution:
+            col.add_widget(lbl(f"! {f.caution}", 13, ORANGE))
+        col.add_widget(lbl("[b]Will send[/b]", 14))
+        col.add_widget(lbl(f.preview(), 12, MUTED))
+        if f.confidence == "template":
+            col.add_widget(lbl("The routine ID is a common default — verify it fits your car before running.", 12, MUTED))
+        self.box.add_widget(sv)
+        if f.kind == "routine":
+            self.box.add_widget(btn("Run on car", lambda: self._confirm(f), color=ACCENT))
+        elif f.kind == "adaptation":
+            self.box.add_widget(lbl("Enter and write the value in the Coding/Adaptations tools.", 12, MUTED))
+        else:
+            self.box.add_widget(lbl("Follow the steps above — no automatic command is sent.", 12, MUTED))
+        self.box.add_widget(btn("Back", lambda *_: self._list()))
+
+    def _confirm(self, f):
+        body = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
+        body.add_widget(lbl(f"Run {f.name} on the car?\n\nConditions: {' · '.join(f.preconditions)}\n\n"
+                            f"Will send:\n{f.preview()}", 13))
+        row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        pop = Popup(title="Confirm", content=body, size_hint=(0.9, 0.6))
+
+        def go(*_):
+            pop.dismiss()
+            self._run(f)
+        row.add_widget(btn("Cancel", pop.dismiss))
+        row.add_widget(btn("Run on car", go, color=hexc("#3A1D1D")))
+        body.add_widget(row)
+        pop.open()
+
+    def _run(self, f):
+        self._stop.clear()
+        self._running = True
+        self.box.clear_widgets()
+        self.status = lbl("Starting…", 18, ACCENT)
+        self.result = lbl("", 13, MUTED)
+        self.box.add_widget(self.status)
+        self.box.add_widget(self.result)
+        self.box.add_widget(btn("Stop", lambda *_: self._stop.set(), color=hexc("#3A1D1D")))
+        b = dict(f.spec)
+        b["name"] = f.name
+
+        def update(**k):
+            Clock.schedule_once(lambda *_: self._update(k))
+
+        def work():
+            return self.s.tool.run_basic_setting(self.module, b, self._stop.is_set, update)
+
+        def done(final):
+            self._running = False
+            self._update({"phase": final or "done"})
+            self.box.add_widget(btn("Close", self.dismiss))
+
+        def fail(m):
+            self._running = False
+            self.status.text, self.status.color = m, RED
+            self.box.add_widget(btn("Close", self.dismiss))
+
+        bg(work, done, fail)
+
+    def _update(self, k):
+        if "phase" in k:
+            text, col = self.PHASE.get(k["phase"], (k["phase"], TEXT))
+            self.status.text, self.status.color = text, col
+        if k.get("result"):
+            self.result.text = f"Result: {k['result']}"
+
+
 # ---------------------------------------------------------------- session (no Qt)
 class Session:
     def __init__(self, app):
@@ -660,11 +773,26 @@ class VehicleScreen(Screen):
             pop.dismiss()
             FaultTestPopup(self.s, r.module, on_done=lambda last: self._after_test(r.module, last)).open()
 
+        def service():
+            pop.dismiss()
+            ServicePopup(self.s, r.module, self._fuel()).open()
+
         box.add_widget(btn("Fault Test — watch it live while you use it", test, color=ACCENT))
+        from obdpro import service as _svc
+        if _svc.functions_for(r.module.address, fam, self._fuel()):
+            box.add_widget(btn("Service Functions — guided procedures", service))
         if r.faults:
             box.add_widget(btn("Clear this module", clear, color=hexc("#3A1D1D")))
         box.add_widget(btn("Close", pop.dismiss))
         pop.open()
+
+    def _fuel(self):
+        """Classify fuel from the engine module's system name (MPI/TSI → petrol, TDI → diesel)."""
+        eng = self.reports.get("01")
+        name = (getattr(eng, "system", None) or "").upper()
+        if "TDI" in name:
+            return "diesel"
+        return "petrol" if any(t in name for t in ("MPI", "TSI", "TFSI", "FSI", "GTI")) else ""
 
     def _after_test(self, module, last):
         if last is None:
