@@ -102,6 +102,125 @@ def alert(title, text):
     Popup(title=title, content=lbl(text), size_hint=(0.9, None), height=dp(260)).open()
 
 
+def fault_popup(f, module, family):
+    """What a fault means and what to check."""
+    import webbrowser
+    e = f.explain(module.name, family)
+    box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
+    sv, col = scroller()
+    col.add_widget(lbl(f"[b]{e.title}[/b]", 17))
+    col.add_widget(lbl(e.code_line, 13, MUTED))
+    for fl in e.flags:
+        hot = fl.startswith(("Failing", "Requests"))
+        col.add_widget(lbl(("● " if hot else "○ ") + fl, 14, ORANGE if hot else MUTED))
+    col.add_widget(lbl("[b]What it means[/b]", 15))
+    col.add_widget(lbl(e.meaning, 14))
+    col.add_widget(lbl("[b]What to check[/b]", 15))
+    for i, c in enumerate(e.checks, 1):
+        col.add_widget(lbl(f"{i}.  {c}", 14))
+    box.add_widget(sv)
+    pop = Popup(title=f.code, content=box, size_hint=(0.95, 0.9))
+    box.add_widget(btn(f"Look up the exact part for {f.dtc if f.powertrain else f.raw}",
+                       lambda: webbrowser.open(e.lookup_url), color=ACCENT))
+    box.add_widget(btn("Close", pop.dismiss))
+    pop.open()
+
+
+class FaultTestPopup(Popup):
+    """Guided Fault Test: the module's fault memory is read live while the user operates the system."""
+
+    def __init__(self, s, module, on_done=None):
+        from obdpro import fault_info
+        self.s, self.module, self.on_done, self.test = s, module, on_done, None
+        self.box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
+        super().__init__(title=f"Fault Test · {module.name}", content=self.box, size_hint=(0.95, 0.92),
+                         auto_dismiss=False)
+        self.steps = fault_info.test_steps(module.name)
+        self._intro()
+
+    def _intro(self):
+        self.box.clear_widgets()
+        sv, col = scroller()
+        col.add_widget(lbl(f"Many faults only show up while the part is working — like an A/C fault that appears once "
+                           f"the A/C runs. The app watches {self.module.name} live while you go through the steps; any "
+                           f"fault pops up the moment the module detects it.", 14, MUTED))
+        col.add_widget(lbl("[b]You'll be asked to[/b]", 15))
+        for i, (t, _d) in enumerate(self.steps, 1):
+            col.add_widget(lbl(f"{i}. {t}", 14))
+        self.box.add_widget(sv)
+        self.box.add_widget(btn("Clear stored faults, then start", lambda: self._start(True), color=ACCENT))
+        self.box.add_widget(btn("Start without clearing", lambda: self._start(False)))
+        self.box.add_widget(btn("Close", self.dismiss))
+
+    def _start(self, clear_first):
+        from obdpro.fault_test import FaultTest
+        self.test = FaultTest(self.s.tool, self.module, clear_first,
+                              on_change=lambda: Clock.schedule_once(lambda *_: self._render()))
+        self.test.start()
+        self._render()
+
+    def _render(self):
+        t = self.test
+        if t is None:
+            return
+        self.box.clear_widgets()
+        sv, col = scroller()
+        if t.phase in ("preparing", "clearing"):
+            col.add_widget(lbl("Clearing stored faults…" if t.phase == "clearing" else f"Connecting to {self.module.name}…", 16))
+        elif t.phase == "error":
+            col.add_widget(lbl(t.error, 16, ORANGE))
+        elif t.phase == "watching":
+            st, de = t.steps[t.step]
+            col.add_widget(lbl(f"Step {t.step + 1} of {len(t.steps)}   ·   [color=#30D158]●[/color] watching live ({t.reads})", 13, MUTED))
+            col.add_widget(lbl(f"[b]{st}[/b]", 22))
+            if de:
+                col.add_widget(lbl(de, 14, MUTED))
+        else:
+            if t.hits:
+                col.add_widget(lbl(f"[b]{len(t.hits)} fault{'s' if len(t.hits) != 1 else ''} appeared[/b]", 20, ORANGE))
+            else:
+                col.add_widget(lbl("[b]No faults appeared[/b]", 20, GREEN))
+                col.add_widget(lbl(f"{self.module.name} worked through every step without detecting a fault "
+                                   f"({t.reads} live checks).", 14, MUTED))
+        if t.note:
+            col.add_widget(lbl(t.note, 12, ORANGE))
+        fam = self.s.family
+        for h in t.hits:
+            e = h.fault.explain(self.module.name, fam)
+            b = btn(f"[b]⚠ {h.fault.code}[/b]  {e.headline}\n[color=#8E8E93]at step {h.step + 1}: {t.steps[h.step][0]}[/color]",
+                    lambda ff=h.fault: fault_popup(ff, self.module, fam), color=hexc("#3A2A12"))
+            b.markup, b.halign, b.height = True, "left", dp(70)
+            b.bind(width=lambda w, *_: setattr(w, "text_size", (w.width - dp(20), None)))
+            col.add_widget(b)
+        hit = {h.fault.code for h in t.hits}
+        for f in t.before:
+            if f.code not in hit:
+                b = btn(f"Stored before: {f.code}  {f.explain(self.module.name, fam).headline}",
+                        lambda ff=f: fault_popup(ff, self.module, fam))
+                b.color = MUTED
+                col.add_widget(b)
+        self.box.add_widget(sv)
+        if t.phase == "watching":
+            row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+            back = btn("Back", t.back)
+            back.disabled = t.step == 0
+            last = t.step + 1 >= len(t.steps)
+            row.add_widget(back)
+            row.add_widget(btn("Finish" if last else "Done — next", t.finish if last else t.next, color=ACCENT))
+            self.box.add_widget(row)
+        elif not t.running:
+            self.box.add_widget(btn("Test again", self._intro))
+        self.box.add_widget(btn("Stop & close" if t.running else "Close", self._close))
+
+    def _close(self):
+        t = self.test
+        if t and t.running:
+            t.finish()
+        self.dismiss()
+        if self.on_done and t:
+            Clock.schedule_once(lambda *_: self.on_done(t.last), 1.0)
+
+
 # ---------------------------------------------------------------- session (no Qt)
 class Session:
     def __init__(self, app):
@@ -516,23 +635,47 @@ class VehicleScreen(Screen):
     def detail(self, r):
         box = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(8))
         sv, col = scroller()
+        fam = self.s.family
         if not r.faults:
             col.add_widget(lbl("No faults stored", 15, GREEN))
+        else:
+            col.add_widget(lbl("Tap a fault for what it means and what to check.", 12, MUTED))
         for f in r.faults:
-            col.add_widget(lbl(f"[b]{f.code}[/b]  {f.state}\n{f.description}\n[color=#8E8E93]{f.detail}[/color]", 14))
+            e = f.explain(r.module.name, fam)
+            b = btn(f"[b]{f.code}[/b]   {f.state}\n{e.headline}\n[color=#8E8E93]{e.code_line}[/color]",
+                    lambda ff=f: fault_popup(ff, r.module, fam))
+            b.markup, b.halign, b.height = True, "left", dp(84)
+            b.bind(width=lambda w, *_: setattr(w, "text_size", (w.width - dp(20), None)))
+            col.add_widget(b)
         if r.part:
             col.add_widget(lbl(f"Part number: {r.part}", 12, MUTED))
         box.add_widget(sv)
-        pop = Popup(title=f"{r.module.address} · {r.module.name}", content=box, size_hint=(0.95, 0.8))
+        pop = Popup(title=f"{r.module.address} · {r.module.name}", content=box, size_hint=(0.95, 0.85))
 
         def clear():
             pop.dismiss()
             self._clear([r])
 
+        def test():
+            pop.dismiss()
+            FaultTestPopup(self.s, r.module, on_done=lambda last: self._after_test(r.module, last)).open()
+
+        box.add_widget(btn("Fault Test — watch it live while you use it", test, color=ACCENT))
         if r.faults:
             box.add_widget(btn("Clear this module", clear, color=hexc("#3A1D1D")))
         box.add_widget(btn("Close", pop.dismiss))
         pop.open()
+
+    def _after_test(self, module, last):
+        if last is None:
+            return
+        from obdpro import features as F
+        from obdpro.vag import Report
+        F.record_faults(self.s.store, self.s.vin, module.address, [(f.code, f.state) for f in last])
+        old = self.reports.get(module.address)
+        self.reports[module.address] = Report(module, True, list(last), getattr(old, "part", None),
+                                              getattr(old, "system", None))
+        self._render()
 
     def clear_faulty(self):
         self._clear([r for r in self.reports.values() if r.faulty])

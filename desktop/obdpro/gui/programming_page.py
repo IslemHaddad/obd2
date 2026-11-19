@@ -85,8 +85,8 @@ class ProgrammingPage(QWidget):
             it.setForeground(QColor(col[c.status]))
             self.checks.setItem(i, 1, it)
             self.checks.setItem(i, 2, QTableWidgetItem(c.detail))
-        vcol = {"codable": C.GREEN, "login": C.ORANGE, "read-only": C.MUTED, "not-supported": C.MUTED}
-        vword = {"codable": "CODABLE", "login": "Needs login", "read-only": "Read-only", "not-supported": "No coding"}
+        vcol = {"codable": C.GREEN, "login": C.ORANGE, "adapter": C.ORANGE, "read-only": C.MUTED, "not-supported": C.MUTED}
+        vword = {"codable": "CODABLE", "login": "Needs login", "adapter": "Adapter can't", "read-only": "Read-only", "not-supported": "No coding"}
         mods = sorted(res.modules, key=lambda m: (m.verdict != "codable", m.address))
         self.mods.setRowCount(len(mods))
         for i, m in enumerate(mods):

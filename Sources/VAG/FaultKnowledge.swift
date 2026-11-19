@@ -66,7 +66,8 @@ enum FaultKnowledge {
     struct Category { let name: String; let meaning: String; let checks: [String] }
 
     static func category(_ t: UInt8) -> Category {
-        switch t >> 4 {
+        // 0x01-0x09 are the "general" form of each group (0x04 = general internal failure → group 4).
+        switch (0x01...0x09).contains(t) ? t : t >> 4 {
         case 0x1:
             return .init(name: "Electrical circuit",
                          meaning: "A wire, connector or part in this circuit is shorted, open, or has the wrong voltage, current or resistance.",

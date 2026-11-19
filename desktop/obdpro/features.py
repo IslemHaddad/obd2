@@ -95,8 +95,16 @@ def record_clear(store: Store, vin: str | None, module: str):
     record_faults(store, vin, module, [("", "CLEARED")], "clear")
 
 
+def _vw_number(code: str) -> str:
+    """Older builds stored VW body/chassis faults as 6 hex digits; they're VW fault numbers (decimal) now.
+    A decimal number never starts with 0 and has no letters, so those two markers identify the old form."""
+    if len(code) == 6 and all(c in "0123456789ABCDEF" for c in code) and (code[0] == "0" or any(c.isalpha() for c in code)):
+        return str(int(code, 16))
+    return code
+
+
 def summarize_history(store: Store) -> list[dict]:
-    hist = store.get("fault_history") or []
+    hist = [dict(h, code=_vw_number(h["code"])) for h in (store.get("fault_history") or [])]
     by: dict[tuple, dict] = {}
     clears: dict[str, list[str]] = {}
     for h in hist:

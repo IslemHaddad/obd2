@@ -102,7 +102,12 @@ def probe_module(vag: VAG, m) -> ModuleCoding:
                 r.verdict = "read-only"
                 r.detail = f"Refused: {NRC.get(neg.nrc, hex(neg.nrc))}."
         except ELMError as e:
-            r.verdict, r.detail = "read-only", str(e)
+            if len(coding) + 3 > 7:     # 2E 06 00 + coding needs a multi-frame send
+                r.verdict = "adapter"
+                r.detail = ("This adapter couldn't send the coding message — it's too long for its chip. "
+                            "An STN-based adapter (e.g. OBDLink) can.")
+            else:
+                r.verdict, r.detail = "read-only", str(e)
         finally:
             try:
                 vag.session(0x01)

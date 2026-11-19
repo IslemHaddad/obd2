@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from . import catalog, dtc_db
+from . import catalog, dtc_db, fault_info
 from .elm import ELM327, ELMError, NoData, to_hex
 
 NRC = {
@@ -16,15 +16,7 @@ NRC = {
     0x7F: "Service not supported in active session",
 }
 
-FTB = {
-    0x00: "No sub-type", 0x01: "General electrical failure", 0x02: "General signal failure",
-    0x11: "Short to ground", 0x12: "Short to battery", 0x13: "Open circuit",
-    0x14: "Short to ground or open", 0x15: "Short to battery or open",
-    0x16: "Voltage below threshold", 0x17: "Voltage above threshold", 0x1C: "Voltage out of range",
-    0x29: "Signal invalid", 0x31: "No signal", 0x54: "Missing calibration", 0x55: "Not configured",
-    0x62: "Signal compare failure", 0x64: "Signal plausibility failure", 0x87: "Missing message",
-    0x88: "Bus off", 0x96: "Component internal failure", 0x98: "Over temperature",
-}
+FTB = fault_info.FTB
 
 STANDARD_DIDS = [
     (0xF187, "Spare Part Number"), (0xF189, "Software Version"), (0xF191, "Hardware Number"),
@@ -72,9 +64,10 @@ class Fault:
 
     @property
     def code(self) -> str:
+        """VW body/chassis modules: VW fault number (decimal, as VCDS / OBDeleven show it). Powertrain: SAE code."""
         if self.powertrain:
             return self.dtc if self.ftb == 0 else f"{self.dtc} {self.ftb:02X}"
-        return f"{self.raw:06X}"
+        return str(self.raw)
 
     @property
     def active(self) -> bool:
@@ -92,13 +85,17 @@ class Fault:
 
     @property
     def description(self) -> str:
-        if self.powertrain:
-            return dtc_db.describe(self.dtc)
-        return f"Module-specific fault (SAE form {self.dtc}-{self.ftb:02X})"
+        if self.powertrain and self.dtc in dtc_db.KNOWN:
+            return dtc_db.KNOWN[self.dtc]
+        return f"{fault_info.category(self.ftb)[0]}: {fault_info.ftb_text(self.ftb)}"
 
     @property
     def detail(self) -> str:
-        return FTB.get(self.ftb, f"Fault type {self.ftb:02X}")
+        sae = "" if self.powertrain else f"{self.dtc} {self.ftb:02X} · "
+        return sae + " · ".join(fault_info.flags(self.status))
+
+    def explain(self, module_name: str, family: str = "vag") -> "fault_info.Explanation":
+        return fault_info.explain(self, module_name, family)
 
 
 @dataclass
@@ -207,33 +204,40 @@ class VAG:
         return s or None
 
     # ---------- faults ----------
-    def report(self, m: Module) -> Report:
-        with self.channel(m):
-            # Ask only for real faults: listing every supported DTC (mask FF) can be hundreds of
-            # records, which cheap ELM327 clones truncate.
+    def faults_open(self, m: Module) -> list[Fault] | None:
+        """Fault list of a module whose channel is already open. None = module not answering."""
+        # Ask only for real faults: listing every supported DTC (mask FF) can be hundreds of
+        # records, which cheap ELM327 clones truncate.
+        try:
+            d = self.elm.request_uds(f"1902{FAULT_MASK:02X}", 2)
+        except ELMError:
+            return None
+        r = _positive(d, 0x59, 0x02)
+        if r is None:
+            if _negative(d, 0x19) is None:
+                return None
             try:
-                d = self.elm.request_uds(f"1902{FAULT_MASK:02X}", 2)
-            except NoData:
-                return Report(m, False)
+                d = self.elm.request_uds("1902FF", 2)        # module rejects the mask → fall back
             except ELMError:
-                return Report(m, False)
+                return None
             r = _positive(d, 0x59, 0x02)
             if r is None:
-                neg = _negative(d, 0x19)
-                if neg is None:
-                    return Report(m, False)
-                d = self.elm.request_uds("1902FF", 2)        # module rejects the mask → fall back
-                r = _positive(d, 0x59, 0x02)
-                if r is None:
-                    return Report(m, False)
-            rec = r[3:]
-            faults: list[Fault] = []
-            for j in range(0, len(rec) - 3, 4):
-                a, b, c, st = rec[j:j + 4]
-                if (a | b | c) and st & FAULT_MASK:
-                    f = Fault(dtc_db.decode(a, b), c, st, a << 16 | b << 8 | c, m.category == "powertrain")
-                    if all(f.code != x.code for x in faults):
-                        faults.append(f)
+                return None
+        rec = r[3:]
+        faults: list[Fault] = []
+        for j in range(0, len(rec) - 3, 4):
+            a, b, c, st = rec[j:j + 4]
+            if (a | b | c) and st & FAULT_MASK:
+                f = Fault(dtc_db.decode(a, b), c, st, a << 16 | b << 8 | c, m.category == "powertrain")
+                if all(f.code != x.code for x in faults):
+                    faults.append(f)
+        return faults
+
+    def report(self, m: Module) -> Report:
+        with self.channel(m):
+            faults = self.faults_open(m)
+            if faults is None:
+                return Report(m, False)
             return Report(m, True, faults, self._ascii(0xF187), self._ascii(0xF197))
 
     def clear(self, m: Module) -> None:

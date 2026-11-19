@@ -162,6 +162,15 @@ class Hyundai(VAG):
                 return out
         return None
 
+    def faults_open(self, m: Module):
+        faults, in_ext = self._uds_faults(m)
+        if in_ext:
+            try:
+                self.session(0x01)
+            except ELMError:
+                pass
+        return faults if faults is not None else self._kwp_faults()
+
     def report(self, m: Module) -> Report:
         with self.channel(m):
             faults, in_ext = self._uds_faults(m)

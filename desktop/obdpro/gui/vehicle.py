@@ -281,11 +281,11 @@ class ModuleDialog(QDialog):
         lay.addWidget(C.label(f"{m.address} · {m.name}", "h1"))
         tabs = QTabWidget()
         tabs.addTab(FaultsTab(s, m, report), "Faults")
+        tabs.addTab(FaultTestTab(s, m), "Fault Test")
         tabs.addTab(LiveTab(s, m), "Live Data")
         if s.family == "vag":
             tabs.addTab(CodingTab(s, m), "Coding")
             tabs.addTab(AdaptationTab(s, m), "Adaptations")
-        tabs.addTab(OutputTab(s, m), "Output Tests")
         tabs.addTab(BasicTab(s, m), "Basic Settings")
         tabs.addTab(IdentTab(s, m), "Identification")
         lay.addWidget(tabs, 1)
@@ -315,25 +315,37 @@ class FaultsTab(QWidget):
         _, l = _tab()
         QVBoxLayout(self).addWidget(_)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Code", "State", "Description", "Fault type"])
+        self.table.setHorizontalHeaderLabels(["Code", "State", "Fault", "Details"])
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.cellDoubleClicked.connect(lambda r, _c: self._explain(r))
         self.clear = C.button("Clear This Module", "danger", self.do_clear)
-        l.addLayout(C.row(C.button("Refresh", slot=self.refresh), "stretch", self.clear))
+        l.addLayout(C.row(C.button("Refresh", slot=self.refresh), C.button("Explain", slot=lambda: self._explain(self.table.currentRow())),
+                          "stretch", self.clear))
         l.addWidget(self.table, 1)
+        l.addWidget(C.label("Double-click a fault for what it means and what to check. "
+                            "Use the Fault Test tab to make intermittent faults show up.", "muted", True))
+        self.faults = []
         self.render(report) if report else self.refresh()
 
     def render(self, r: Report):
+        self.faults = list(r.faults)
         self.table.setRowCount(len(r.faults))
         for i, f in enumerate(r.faults):
+            e = f.explain(self.m.name, self.s.family)
             self.table.setItem(i, 0, QTableWidgetItem(f.code))
             st = QTableWidgetItem(f.state)
             st.setForeground(QColor(self.m.color if f.active else C.MUTED))
             self.table.setItem(i, 1, st)
-            self.table.setItem(i, 2, QTableWidgetItem(f.description))
-            self.table.setItem(i, 3, QTableWidgetItem(f.detail))
+            self.table.setItem(i, 2, QTableWidgetItem(e.headline))
+            self.table.setItem(i, 3, QTableWidgetItem(e.code_line))
         self.clear.setEnabled(r.faulty)
+
+    def _explain(self, row):
+        if 0 <= row < len(self.faults):
+            FaultInfoDialog(self, self.faults[row], self.m, self.s.family).exec()
 
     def _read(self):
         from .. import features as F
@@ -350,6 +362,157 @@ class FaultsTab(QWidget):
         if C.confirm(self, "Clear", f"Clear faults in {self.m.name} only?", "Clear"):
             C.run_bg(lambda: (self.s.vag.clear(self.m), F.record_clear(self.s.store, self.s.vin, self.m.address),
                               self._read())[2], self.render)
+
+
+class FaultInfoDialog(QDialog):
+    def __init__(self, parent, f, m, family):
+        super().__init__(parent)
+        e = f.explain(m.name, family)
+        self.setWindowTitle(f.code)
+        self.resize(620, 520)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.addWidget(C.label(e.title, "h1", True))
+        lay.addWidget(C.label(e.code_line, "muted"))
+        for fl in e.flags:
+            hot = fl.startswith(("Failing", "Requests"))
+            lay.addWidget(C.label(("● " if hot else "○ ") + fl, None))
+        lay.addWidget(C.label("What it means", "h2"))
+        lay.addWidget(C.label(e.meaning, None, True))
+        lay.addWidget(C.label("What to check", "h2"))
+        for i, c in enumerate(e.checks, 1):
+            lay.addWidget(C.label(f"{i}.  {c}", None, True))
+        link = QLabel(f'<a href="{e.lookup_url}">Look up the exact part for {f.dtc if f.powertrain else f.raw} →</a>')
+        link.setOpenExternalLinks(True)
+        lay.addWidget(link)
+        lay.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+
+# ------------------------------------------------------------------- Fault test
+class _TestSig(QObject):
+    changed = Signal()
+
+
+class FaultTestTab(QWidget):
+    def __init__(self, s, m):
+        super().__init__()
+        from .. import fault_info
+        self.s, self.m = s, m
+        self.test = None
+        self.sig = _TestSig()
+        self.sig.changed.connect(self.render)
+        _, l = _tab()
+        QVBoxLayout(self).addWidget(_)
+        l.addWidget(C.label(f"Many faults only show up while the part is working — like an A/C fault that appears once "
+                            f"the A/C runs. The app watches {m.name} live while you go through the steps; any fault pops up "
+                            f"the moment the module detects it, with the step that caused it.", "muted", True))
+        self.clear_cb = QCheckBox("Clear stored faults first (then anything that shows up is real and current)")
+        self.clear_cb.setChecked(True)
+        self.start_btn = C.button("▶ Start Test", "primary", self.start)
+        l.addLayout(C.row(self.clear_cb, "stretch", self.start_btn))
+        self.step_no = C.label("", "muted")
+        self.step_title = C.label("", "h1", True)
+        self.step_detail = C.label("", None, True)
+        self.status = C.label("", "muted")
+        self.back_btn = C.button("Back", slot=lambda: self.test and self.test.back())
+        self.next_btn = C.button("Done — next", "primary", self._next)
+        l.addWidget(C.card(self.step_no, self.step_title, self.step_detail,
+                           C.row(self.status, "stretch", self.back_btn, self.next_btn)))
+        self.list = QListWidget()
+        self.list.itemDoubleClicked.connect(lambda it: FaultInfoDialog(self, it.data(Qt.UserRole), self.m, self.s.family).exec())
+        l.addWidget(self.list, 1)
+        steps = fault_info.test_steps(m.name)
+        self.preview = "\n".join(f"{i}. {t}" for i, (t, _d) in enumerate(steps, 1))
+        self.render()
+
+    def start(self):
+        from ..fault_test import FaultTest
+        if self.test and self.test.running:
+            return
+        self.test = FaultTest(self.s.vag, self.m, self.clear_cb.isChecked(), on_change=self.sig.changed.emit)
+        self.test.start()
+        self.render()
+
+    def _next(self):
+        t = self.test
+        if not t:
+            return
+        if t.step + 1 < len(t.steps):
+            t.next()
+        else:
+            t.finish()
+
+    def render(self):
+        t = self.test
+        running = bool(t and t.running)
+        self.start_btn.setEnabled(not running and self.s.connected)
+        self.start_btn.setText("▶ Test again" if t and not running else "▶ Start Test")
+        self.clear_cb.setEnabled(not running)
+        watching = bool(t and t.phase == "watching")
+        self.back_btn.setVisible(watching)
+        self.next_btn.setVisible(watching)
+        if not t:
+            self.step_no.setText("You'll be asked to:")
+            self.step_title.setText("")
+            self.step_detail.setText(self.preview)
+            self.status.setText("")
+        elif t.phase in ("preparing", "clearing"):
+            self.step_no.setText("")
+            self.step_title.setText("Clearing stored faults…" if t.phase == "clearing" else f"Connecting to {self.m.name}…")
+            self.step_detail.setText("")
+        elif t.phase == "error":
+            self.step_title.setText(t.error)
+            self.step_detail.setText("")
+        elif t.phase == "watching":
+            st, de = t.steps[t.step]
+            self.step_no.setText(f"Step {t.step + 1} of {len(t.steps)}")
+            self.step_title.setText(st)
+            self.step_detail.setText(de)
+            self.next_btn.setText("Done — next" if t.step + 1 < len(t.steps) else "Finish")
+            self.back_btn.setEnabled(t.step > 0)
+            self.status.setText(f"● Watching live · {t.reads} checks")
+        else:
+            self.step_no.setText("Result")
+            if t.hits:
+                self.step_title.setText(f"{len(t.hits)} fault{'s' if len(t.hits) != 1 else ''} appeared")
+                self.step_detail.setText("Double-click each one for what it means and what to check.")
+            else:
+                self.step_title.setText("No faults appeared")
+                self.step_detail.setText(f"{self.m.name} worked through every step without detecting a fault ({t.reads} live checks).")
+            self.status.setText("")
+            self._save_result(t)
+        if t and t.note:
+            self.step_detail.setText((self.step_detail.text() + "\n" + t.note).strip())
+        self.list.clear()
+        if t:
+            for h in t.hits:
+                e = h.fault.explain(self.m.name, self.s.family)
+                it = QListWidgetItem(f"⚠ {h.fault.code}  {e.headline}   — at step {h.step + 1}: {t.steps[h.step][0]} "
+                                     f"({datetime.fromtimestamp(h.at):%H:%M:%S})")
+                it.setForeground(QColor(self.m.color))
+                it.setData(Qt.UserRole, h.fault)
+                self.list.addItem(it)
+            hit = {h.fault.code for h in t.hits}
+            for f in t.before:
+                if f.code not in hit:
+                    it = QListWidgetItem(f"Stored before the test: {f.code}  {f.explain(self.m.name, self.s.family).headline}")
+                    it.setForeground(QColor(C.MUTED))
+                    it.setData(Qt.UserRole, f)
+                    self.list.addItem(it)
+
+    def _save_result(self, t):
+        if getattr(t, "_saved", False) or t.last is None:
+            return
+        t._saved = True
+        from .. import features as F
+        F.record_faults(self.s.store, self.s.vin, self.m.address, [(f.code, f.state) for f in t.last])
+
+    def shutdown(self):
+        if self.test:
+            self.test.finish()
 
 
 # ------------------------------------------------------------------- Live data
@@ -412,63 +575,6 @@ class MeasurementDialog(QDialog):
         self.accept()
 
 
-class ScanDialog(QDialog):
-    """Probe a DID range and pick one."""
-
-    def __init__(self, parent, s, m):
-        super().__init__(parent)
-        self.s, self.m = s, m
-        self.picked = None
-        self.setWindowTitle(f"Scan identifiers · {m.name}")
-        self.resize(560, 480)
-        l = QVBoxLayout(self)
-        self.a = QLineEdit("0100")
-        self.b = QLineEdit("04FF")
-        self.go = C.button("Start", "primary", self.start)
-        self.stop_btn = C.button("Stop", slot=lambda: self._stop.set())
-        l.addLayout(C.row(C.label("From"), self.a, C.label("To"), self.b, "stretch", self.stop_btn, self.go))
-        self.bar = QProgressBar()
-        self.info = C.label("", "muted")
-        l.addWidget(self.bar)
-        l.addWidget(self.info)
-        self.list = QListWidget()
-        self.list.itemDoubleClicked.connect(self._pick)
-        l.addWidget(self.list, 1)
-        l.addWidget(C.label("Double-click a result to use it.", "muted"))
-        self._stop = threading.Event()
-        self.sig = _Progress()
-        self.sig.step.connect(lambda pct, n: (self.bar.setValue(pct), self.info.setText(f"{n} found")))
-
-    def start(self):
-        a, b = _hexid(self.a.text()), _hexid(self.b.text())
-        if a is None or b is None or a > b:
-            return C.error_box("Enter a valid hex range", self)
-        self._stop.clear()
-        self.go.setEnabled(False)
-        self.list.clear()
-
-        def done(res):
-            self.go.setEnabled(True)
-            self.bar.setValue(100)
-            self.info.setText(f"{len(res)} identifiers respond")
-            for did, p in res:
-                it = QListWidgetItem(f"{did:04X}    {to_hex(p[:24], ' ')}")
-                it.setData(Qt.UserRole, (did, p))
-                self.list.addItem(it)
-
-        C.run_bg(lambda: self.s.vag.scan_dids(self.m, a, b, lambda f, n: self.sig.step.emit(int(f * 100), n),
-                                              self._stop.is_set), done,
-                 lambda e: (self.go.setEnabled(True), C.error_box(e, self)))
-
-    def _pick(self, it):
-        self.picked = it.data(Qt.UserRole)
-        self.accept()
-
-    def reject(self):
-        self._stop.set()
-        super().reject()
-
-
 class _LiveSig(QObject):
     value = Signal(str, str, object)
 
@@ -480,7 +586,7 @@ class LiveTab(QWidget):
         _, l = _tab()
         QVBoxLayout(self).addWidget(_)
         self.run_btn = C.button("▶ Start", "primary", self.toggle)
-        l.addLayout(C.row(C.button("Scan Module…", slot=self.scan), C.button("+ Add", slot=self.add),
+        l.addLayout(C.row(C.button("+ Add", slot=self.add),
                           C.button("Edit", slot=self.edit), C.button("Remove", slot=self.remove),
                           "stretch", self.run_btn))
         self.table = QTableWidget(0, 4)
@@ -491,8 +597,6 @@ class LiveTab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         l.addWidget(self.table, 1)
-        l.addWidget(C.label("Measurement names and scaling are yours to define — scan the module, then add what "
-                            "responds.", "muted", True))
         self.sig = _LiveSig()
         self.sig.value.connect(self._on_value)
         self._stop = threading.Event()
@@ -587,16 +691,6 @@ class LiveTab(QWidget):
             self.s.store.delete("measurements", self.table.item(r, 0).data(Qt.UserRole)["id"])
             self.render()
 
-    def scan(self):
-        was = self._thread is not None
-        self.shutdown()
-        dlg = ScanDialog(self, self.s, self.m)
-        if dlg.exec() and dlg.picked:
-            did, p = dlg.picked
-            self.add({"did": did, "kind": "number" if len(p) <= 4 else "hex", "length": min(max(len(p), 1), 2)})
-        if was:
-            self.toggle()
-
 
 # ------------------------------------------------------------------- Coding
 class CodingTab(QWidget):
@@ -610,6 +704,10 @@ class CodingTab(QWidget):
         QVBoxLayout(self).addWidget(_)
         self.write_btn = C.button("Write Coding", "primary", self.write)
         self.revert_btn = C.button("Revert", slot=self.revert)
+        self.ability = None                 # None = not checked yet
+        self.ability_lbl = C.label("", "muted", True)
+        self.recheck_btn = C.button("Check again", slot=self.check_ability)
+        l.addLayout(C.row(self.ability_lbl, "stretch", self.recheck_btn))
         l.addLayout(C.row(C.button("Read", slot=self.read), "stretch", self.revert_btn, self.write_btn))
         self.hex = QLineEdit()
         self.hex.setStyleSheet("font-family: monospace; font-size: 14px;")
@@ -648,6 +746,50 @@ class CodingTab(QWidget):
         mid.setSizes([380, 160, 320])
         l.addWidget(mid, 1)
         self._lists()
+        self._refresh_ui()
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        if self.ability is None:
+            key = self._ability_key()
+            cached = getattr(self.s, "coding_ability", {}).get(key)
+            if cached:
+                self._show_ability(*cached)
+            else:
+                self.check_ability()
+
+    def _ability_key(self):
+        return f"{self.s.elm.profile.chip if self.s.elm else '?'}|{self.s.vin}|{self.m.address}"
+
+    def check_ability(self):
+        """Writes the module's current coding back unchanged — the only reliable test of adapter + login."""
+        from ..programming import probe_module
+        if not self.s.connected:
+            self.ability_lbl.setText("Connect to check whether this adapter can code the module.")
+            return
+        self.ability = "checking"
+        self.ability_lbl.setText(f"Checking if your adapter can code {self.m.name}… (writes the same coding back — "
+                                 f"nothing changes)")
+        self.recheck_btn.setEnabled(False)
+
+        def done(r):
+            if r.verdict in ("codable", "login", "not-supported", "adapter"):
+                if not hasattr(self.s, "coding_ability"):
+                    self.s.coding_ability = {}
+                self.s.coding_ability[self._ability_key()] = (r.verdict, r.detail)
+            self._show_ability(r.verdict, r.detail)
+            if r.coding and not self.coding:
+                self.original = list(hex_bytes(r.coding))
+                self._set(list(self.original))
+        C.run_bg(lambda: probe_module(self.s.vag, self.m), done,
+                 lambda e: self._show_ability("read-only", str(e)))
+
+    def _show_ability(self, verdict, detail):
+        self.ability = verdict
+        self.recheck_btn.setEnabled(True)
+        head = {"codable": "✓ This adapter can code this module.", "login": "🔒 Needs login",
+                "adapter": "Adapter can't", "not-supported": "No coding", "absent": "Module not answering"}.get(verdict, "Not possible")
+        self.ability_lbl.setText(f"{head} — {detail}" if verdict != "codable" else head)
         self._refresh_ui()
 
     def read(self):
@@ -692,7 +834,7 @@ class CodingTab(QWidget):
                 cb.setStyleSheet(f"color: {C.ORANGE}" if changed else "")
                 cb.blockSignals(False)
         changed = self.coding != self.original and bool(self.coding)
-        self.write_btn.setEnabled(changed and self.s.connected)
+        self.write_btn.setEnabled(changed and self.s.connected and self.ability == "codable")
         self.revert_btn.setEnabled(changed)
 
     def _select(self, i):
@@ -772,7 +914,7 @@ class AdaptationTab(QWidget):
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
-        ll.addLayout(C.row(C.button("Scan…", slot=self.scan), C.button("+ Add", slot=lambda: self.add()),
+        ll.addLayout(C.row(C.button("+ Add", slot=lambda: self.add()),
                            C.button("Edit", slot=self.edit), C.button("Remove", slot=self.remove)))
         self.list = QListWidget()
         self.list.currentItemChanged.connect(lambda *_: self.read())
@@ -924,149 +1066,11 @@ class AdaptationTab(QWidget):
             self.s.store.delete("adaptations", a["id"])
             self.render()
 
-    def scan(self):
-        dlg = ScanDialog(self, self.s, self.m)
-        if dlg.exec() and dlg.picked:
-            did, p = dlg.picked
-            kind = "number" if len(p) <= 4 else ("ascii" if all(0x20 <= b <= 0x7E for b in p) else "hex")
-            self.add({"did": did, "kind": kind, "length": min(len(p), 4) if len(p) in (1, 2, 4) else 1})
 
-
-# ------------------------------------------------------------------- Output tests
-class OutputDialog(QDialog):
-    def __init__(self, parent, t: dict):
-        super().__init__(parent)
-        self.t = dict(t)
-        self.setWindowTitle("Output test")
-        f = QFormLayout(self)
-        self.name = QLineEdit(t.get("name", ""))
-        self.method = QComboBox()
-        self.method.addItems(["I/O Control (2F)", "Routine (31)"])
-        self.method.setCurrentIndex(0 if t.get("method", "io") == "io" else 1)
-        self.ident = QLineEdit(f"{t['id']:04X}" if t.get("id") else "")
-        self.data = QLineEdit(t.get("data", ""))
-        self.dur = QSpinBox()
-        self.dur.setRange(1, 120)
-        self.dur.setValue(int(t.get("duration", 10)))
-        self.preview = C.label("", "muted")
-        for w in (self.method, self.ident, self.data):
-            (w.currentIndexChanged if isinstance(w, QComboBox) else w.textChanged).connect(self._pv)
-        f.addRow("Name", self.name)
-        f.addRow("Method", self.method)
-        f.addRow("DID / Routine ID (hex)", self.ident)
-        f.addRow("Control data (hex, optional)", self.data)
-        f.addRow("Auto-stop (s)", self.dur)
-        f.addRow(self.preview)
-        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        f.addRow(bb)
-        self._pv()
-
-    def _pv(self):
-        i = self.ident.text().upper() or "????"
-        d = self.data.text().upper().replace(" ", "")
-        self.preview.setText(f"Start: 2F{i}03{d}   Stop: 2F{i}00" if self.method.currentIndex() == 0
-                             else f"Start: 3101{i}{d}   Stop: 3102{i}")
-
-    def _ok(self):
-        i = _hexid(self.ident.text())
-        if i is None or not self.name.text().strip():
-            return C.error_box("Name and hex identifier required.", self)
-        self.t.update(name=self.name.text().strip(), method="io" if self.method.currentIndex() == 0 else "routine",
-                      id=i, data=to_hex(hex_bytes(self.data.text())), duration=self.dur.value())
-        self.accept()
-
-
+# ------------------------------------------------------------------- shared status signal
 class _Status(QObject):
     text = Signal(str)
     upd = Signal(object)
-
-
-class OutputTab(QWidget):
-    def __init__(self, s, m):
-        super().__init__()
-        self.s, self.m = s, m
-        _, l = _tab()
-        QVBoxLayout(self).addWidget(_)
-        self.start_btn = C.button("▶ Start", "primary", self.start)
-        self.stop_btn = C.button("■ Stop", "danger", self.stop)
-        l.addLayout(C.row(C.button("+ Add", slot=lambda: self.add()), C.button("Edit", slot=self.edit),
-                          C.button("Remove", slot=self.remove), "stretch", self.stop_btn, self.start_btn))
-        self.list = QListWidget()
-        l.addWidget(self.list, 1)
-        self.status = C.label("", "h2")
-        l.addWidget(self.status)
-        self.sig = _Status()
-        self.sig.text.connect(lambda t: self.status.setText("⚡ " + t))
-        self._stop = threading.Event()
-        self._running = False
-        self.render()
-        self._buttons()
-
-    def render(self):
-        self.list.clear()
-        for t in self.s.store.items("output_tests", self.m.address):
-            kind = "2F" if t["method"] == "io" else "31"
-            it = QListWidgetItem(f"{t['name']}    {kind} {t['id']:04X} {t.get('data', '')}  · {t['duration']}s")
-            it.setData(Qt.UserRole, t)
-            self.list.addItem(it)
-
-    def _buttons(self):
-        self.start_btn.setEnabled(not self._running and self.s.connected)
-        self.stop_btn.setEnabled(self._running)
-        self.status.setStyleSheet(f"color: {C.YELLOW}")
-
-    def start(self):
-        it = self.list.currentItem()
-        if not it:
-            return
-        t = it.data(Qt.UserRole)
-        self._stop.clear()
-        self._running = True
-        self._buttons()
-
-        def done(_):
-            self._running = False
-            self.status.setText(f"Finished: {t['name']}")
-            self.status.setStyleSheet(f"color: {C.GREEN}")
-            self.start_btn.setEnabled(self.s.connected)
-            self.stop_btn.setEnabled(False)
-
-        def fail(m):
-            self._running = False
-            self._buttons()
-            self.status.setText("")
-            C.error_box(m)
-
-        C.run_bg(lambda: self.s.vag.run_output_test(self.m, t, self._stop.is_set, self.sig.text.emit), done, fail)
-
-    def stop(self):
-        self._stop.set()
-
-    def shutdown(self):
-        self._stop.set()
-
-    def add(self, preset=None):
-        dlg = OutputDialog(self, preset or {})
-        if dlg.exec():
-            dlg.t["module"] = self.m.address
-            self.s.store.upsert("output_tests", dlg.t)
-            self.render()
-
-    def edit(self):
-        it = self.list.currentItem()
-        if it:
-            dlg = OutputDialog(self, it.data(Qt.UserRole))
-            if dlg.exec():
-                self.s.store.upsert("output_tests", dlg.t)
-                self.render()
-
-    def remove(self):
-        it = self.list.currentItem()
-        if it:
-            self.s.store.delete("output_tests", it.data(Qt.UserRole)["id"])
-            self.render()
 
 
 # ------------------------------------------------------------------- Basic settings
