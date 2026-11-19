@@ -317,6 +317,7 @@ class FaultsTab(QWidget):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Code", "State", "Fault", "Details"])
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table.verticalHeader().hide()
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -707,7 +708,9 @@ class CodingTab(QWidget):
         self.ability = None                 # None = not checked yet
         self.ability_lbl = C.label("", "muted", True)
         self.recheck_btn = C.button("Check again", slot=self.check_ability)
-        l.addLayout(C.row(self.ability_lbl, "stretch", self.recheck_btn))
+        ab = C.row(self.ability_lbl, self.recheck_btn)
+        ab.setStretch(0, 1)
+        l.addLayout(ab)
         l.addLayout(C.row(C.button("Read", slot=self.read), "stretch", self.revert_btn, self.write_btn))
         self.hex = QLineEdit()
         self.hex.setStyleSheet("font-family: monospace; font-size: 14px;")
