@@ -112,7 +112,7 @@ def fault_popup(f, module, family):
     col.add_widget(lbl(e.code_line, 13, MUTED))
     for fl in e.flags:
         hot = fl.startswith(("Failing", "Requests"))
-        col.add_widget(lbl(("● " if hot else "○ ") + fl, 14, ORANGE if hot else MUTED))
+        col.add_widget(lbl(("• " if hot else "· ") + fl, 14, ORANGE if hot else MUTED))
     col.add_widget(lbl("[b]What it means[/b]", 15))
     col.add_widget(lbl(e.meaning, 14))
     col.add_widget(lbl("[b]What to check[/b]", 15))
@@ -171,7 +171,7 @@ class FaultTestPopup(Popup):
             col.add_widget(lbl(t.error, 16, ORANGE))
         elif t.phase == "watching":
             st, de = t.steps[t.step]
-            col.add_widget(lbl(f"Step {t.step + 1} of {len(t.steps)}   ·   [color=#30D158]●[/color] watching live ({t.reads})", 13, MUTED))
+            col.add_widget(lbl(f"Step {t.step + 1} of {len(t.steps)}   ·   [color=#30D158]•[/color] watching live ({t.reads})", 13, MUTED))
             col.add_widget(lbl(f"[b]{st}[/b]", 22))
             if de:
                 col.add_widget(lbl(de, 14, MUTED))
@@ -187,7 +187,7 @@ class FaultTestPopup(Popup):
         fam = self.s.family
         for h in t.hits:
             e = h.fault.explain(self.module.name, fam)
-            b = btn(f"[b]⚠ {h.fault.code}[/b]  {e.headline}\n[color=#8E8E93]at step {h.step + 1}: {t.steps[h.step][0]}[/color]",
+            b = btn(f"[b]! {h.fault.code}[/b]  {e.headline}\n[color=#8E8E93]at step {h.step + 1}: {t.steps[h.step][0]}[/color]",
                     lambda ff=h.fault: fault_popup(ff, self.module, fam), color=hexc("#3A2A12"))
             b.markup, b.halign, b.height = True, "left", dp(70)
             b.bind(width=lambda w, *_: setattr(w, "text_size", (w.width - dp(20), None)))
