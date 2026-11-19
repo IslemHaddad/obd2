@@ -126,6 +126,100 @@ CATALOG: list[ServiceFn] = [
         caution="Wrong capacity makes the charging strategy wrong. Skip if the car has no BMS.",
         engine="ignition", confidence="template"),
     ServiceFn(
+        id="injector_coding", name="Injector Coding / Calibration", group="Engine", modules=("01",),
+        summary="Writes the injector correction (IMA/flow) codes after replacing injectors, so the ECU "
+                "trims each cylinder correctly.",
+        kind="adaptation", spec={"did": 0x0391},
+        steps=("Ignition ON, engine off.",
+               "Enter each injector's code from its body / paperwork, per cylinder.",
+               "Write and verify.",
+               "Start the engine and check idle smoothness."),
+        preconditions=("Ignition on, engine off", "Injector codes to hand"),
+        caution="Wrong codes cause rough running. Match each code to the correct cylinder.",
+        engine="ignition", confidence="template"),
+    ServiceFn(
+        id="egr_adapt", name="EGR Adaptation / Learn", group="Engine", modules=("01",),
+        summary="Re-learns the EGR valve range after cleaning or replacement. Mostly diesel.",
+        kind="routine", spec={"routine": 0x0408, "timeout": 60, "done_offset": 0, "done_value": 0x02},
+        steps=("Engine warm and idling, no loads.",
+               "Do not touch the accelerator.",
+               "Run the routine; the EGR valve cycles and relearns.",
+               "Switch off for 20 s when done."),
+        preconditions=("Engine warm and idling", "Accelerator released"),
+        caution="The EGR valve moves on its own during the routine.",
+        engine="running", confidence="template"),
+    ServiceFn(
+        id="gearbox_relearn", name="Gearbox / DSG Adaptation", group="Engine", modules=("02",),
+        summary="Resets and re-learns transmission clutch/shift adaptations after service or clutch work. "
+                "Follow with a defined drive cycle.",
+        kind="routine", spec={"routine": 0x0401, "timeout": 60, "done_offset": 0, "done_value": 0x02},
+        steps=("Engine warm, selector in P, brake held.",
+               "Run the reset.",
+               "Then drive the manufacturer's adaptation cycle (varied gentle shifts).",
+               "Shift quality improves as it relearns."),
+        preconditions=("Engine warm", "Selector in P", "Brake held"),
+        caution="Shifts may feel firm until the drive-cycle relearn completes.",
+        engine="running", confidence="template"),
+    ServiceFn(
+        id="immobilizer_reset", name="Immobilizer / Key Learn", group="Security", modules=("09", "17"),
+        summary="Immobilizer adaptation (key matching / component protection). Security-protected — usually "
+                "needs the vehicle's secret PIN/SKC and online access.",
+        kind="procedure", spec={},
+        steps=("This needs the vehicle's component-protection PIN/SKC.",
+               "Without it the ECU stays security-locked (NRC 0x33).",
+               "Use the dealer/ODIS online path or a known-good SKC source."),
+        preconditions=("Vehicle PIN/SKC available",),
+        caution="Immobilizer work can leave the car unable to start. Only with the correct secret.",
+        engine="ignition", confidence="template"),
+    ServiceFn(
+        id="tpms_reset", name="Tyre Pressure (TPMS) Reset", group="Comfort", modules=("17",),
+        summary="Resets the tyre-pressure monitor to the current pressures as the new reference, after "
+                "inflation or a tyre change.",
+        kind="routine", spec={"routine": 0x0409, "timeout": 20, "done_offset": 0, "done_value": 0x02},
+        steps=("Set all tyres to the correct cold pressures.",
+               "Ignition ON.",
+               "Run the reset (or use the car's menu / SET button).",
+               "Drive a few minutes to confirm the warning stays off."),
+        preconditions=("Tyres at correct pressure", "Ignition on"),
+        caution="On indirect TPMS this just relearns; it can't detect a real slow leak immediately.",
+        engine="ignition", confidence="template"),
+    ServiceFn(
+        id="sunroof_init", name="Sunroof Initialisation", group="Comfort", modules=("09",),
+        summary="Re-initialises the sunroof's end stops and one-touch after a battery disconnect or if it "
+                "won't auto-close.",
+        kind="procedure", spec={},
+        steps=("Ignition ON.",
+               "Hold the switch to fully close, keep holding 10–20 s.",
+               "Release, then tilt/close once more to confirm one-touch works.",
+               "(Some cars expose this as a basic-setting routine instead.)"),
+        preconditions=("Ignition on",),
+        caution="Keep fingers clear of the glass during initialisation.",
+        engine="ignition", confidence="template"),
+    ServiceFn(
+        id="headlight_afs", name="Adaptive Front Lighting Calibration", group="Comfort", modules=("09",),
+        summary="Calibrates headlight range / adaptive front-lighting (AFS) aim after a headlight or level "
+                "sensor replacement.",
+        kind="routine", spec={"routine": 0x040A, "timeout": 30, "done_offset": 0, "done_value": 0x02},
+        steps=("Car on level ground, correct ride height, engine running.",
+               "Nobody in the car, normal load.",
+               "Run the calibration; the headlights sweep and centre.",
+               "Check beam aim on a wall afterwards."),
+        preconditions=("Level ground", "Engine running", "Normal load"),
+        caution="Mis-aimed beams dazzle oncoming drivers. Verify aim after.",
+        engine="running", confidence="template"),
+    ServiceFn(
+        id="air_suspension", name="Air Suspension Ride-Height Calibration", group="Comfort", modules=("34",),
+        summary="Calibrates air-suspension ride heights after a level-sensor or strut replacement. Only on "
+                "air-sprung cars.",
+        kind="routine", spec={"routine": 0x040B, "timeout": 120, "done_offset": 0, "done_value": 0x02},
+        steps=("Car on level ground, doors closed, normal load.",
+               "Measure actual ride heights as the car asks.",
+               "Enter them and run the calibration.",
+               "Let the car settle and recheck."),
+        preconditions=("Level ground", "Air suspension fitted"),
+        caution="Wrong heights affect handling and headlight aim.",
+        engine="ignition", confidence="template"),
+    ServiceFn(
         id="dpf_regen", name="DPF Forced Regeneration", group="Engine", modules=("01",),
         summary="Forces a diesel particulate filter burn-off when soot load is high. Diesel only.",
         kind="routine", spec={"routine": 0x0407, "timeout": 1800, "done_offset": 0, "done_value": 0x02},
@@ -139,7 +233,7 @@ CATALOG: list[ServiceFn] = [
         engine="running", fuel=("diesel",), confidence="template"),
 ]
 
-GROUPS = ("Engine", "Brakes", "Steering", "Service", "Battery", "Comfort")
+GROUPS = ("Engine", "Brakes", "Steering", "Service", "Battery", "Security", "Comfort")
 
 
 def functions_for(address: str | None = None, family: str = "vag", fuel: str = "") -> list[ServiceFn]:
