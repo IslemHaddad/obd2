@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QTabWidget,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import catalog, service
+from .. import catalog, online, service
 from ..elm import ELMError, hex_bytes, to_hex
 from ..vag import MODULE_BY_ADDR, MODULES, Report, decode_measurement, numeric, patch_number
 from . import common as C
@@ -48,9 +48,10 @@ class VehiclePage(QWidget):
         self.scan_btn = C.button("Full Scan", "primary", self.scan)
         self._force_discover = False
         self.rediscover_btn = C.button("Re-discover modules", slot=self._rediscover)
+        self.info_btn = C.button("Car Info ⓘ", slot=self._car_info)
         self.clear_btn = C.button("Clear Faulty Modules", "danger", self.clear_faulty)
         lay.addLayout(C.row(self.badge, C.label("Vehicle", "h1"), self.brand, self.model, "stretch",
-                            self.rediscover_btn, self.clear_btn, self.scan_btn))
+                            self.info_btn, self.rediscover_btn, self.clear_btn, self.scan_btn))
         lay.addLayout(C.row(self.vin, "stretch", C.pill("Electronics", C.YELLOW), C.pill("Powertrain / Chassis", C.ORANGE),
                             C.pill("Safety", C.RED), C.pill("OK", C.GREEN)))
         self.progress = QProgressBar()
@@ -146,6 +147,16 @@ class VehiclePage(QWidget):
             self.note.setText("Module scan needs a CAN 11-bit car. Generic codes are on Diagnose.")
         else:
             self.note.setText("")
+
+    # ---- online car info
+    def _car_info(self):
+        key = self.brand.currentData()
+        disp = catalog.BRANDS[key][0]
+        model = self.model.currentText() or ""
+        rep = self.reports.get("01")
+        system_name = getattr(rep, "system", "") if rep else ""
+        CarInfoDialog(disp, model, self.s.vin or "", self.s.fuel, system_name,
+                      catalog.FAMILY.get(key, "vag"), self).show()
 
     # ---- scan / clear
     def scan(self):
@@ -1433,3 +1444,75 @@ class IdentTab(QWidget):
                 self.table.setItem(i, 1, QTableWidgetItem(v))
 
         C.run_bg(lambda: s.vag.identification(m), done)
+
+
+# =================================================================== Online car info
+def _load_image(url: str) -> bytes | None:
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": online._UA})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return r.read()
+    except Exception:
+        return None
+
+
+class CarInfoDialog(QDialog):
+    """Fetches and shows an online photo + description for the car, its engine and platform."""
+    def __init__(self, brand_disp, model, vin, fuel, system_name, family, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{brand_disp} {model}".strip() or "Car Info")
+        self.resize(560, 640)
+        from PySide6.QtWidgets import QScrollArea
+        outer = QVBoxLayout(self)
+        self.status = C.label("Fetching online data…", "muted")
+        outer.addWidget(self.status)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        self.body = QWidget()
+        self.bl = QVBoxLayout(self.body)
+        self.bl.setAlignment(Qt.AlignTop)
+        scroll.setWidget(self.body)
+        outer.addWidget(scroll, 1)
+        C.run_bg(lambda: online.fetch(brand_disp, model, vin, fuel, system_name, family=family), self._show,
+                 lambda m: self.status.setText(f"Offline or unavailable: {m}"))
+
+    def _section(self, media, fallback_title):
+        if not media or not media.ok():
+            return
+        title = media.title or fallback_title
+        self.bl.addWidget(C.label(title, "h2"))
+        if media.image_url:
+            data = _load_image(media.image_url)
+            if data:
+                from PySide6.QtGui import QPixmap
+                pm = QPixmap()
+                if pm.loadFromData(data):
+                    lbl = QLabel()
+                    lbl.setPixmap(pm.scaledToWidth(min(500, pm.width()), Qt.SmoothTransformation))
+                    self.bl.addWidget(lbl)
+        if media.summary:
+            self.bl.addWidget(C.label(media.summary, "muted", True))
+        self.bl.addSpacing(10)
+
+    def _show(self, info: online.CarInfo):
+        if not info.ok():
+            self.status.setText("No online data found for this car.")
+            return
+        self.status.setText(info.title)
+        self._section(info.car, info.title)
+        if info.specs:
+            self.bl.addWidget(C.label("Specifications (from VIN)", "h2"))
+            t = QTableWidget(len(info.specs), 2)
+            t.horizontalHeader().hide()
+            t.verticalHeader().hide()
+            t.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+            t.setEditTriggers(QTableWidget.NoEditTriggers)
+            t.setMaximumHeight(min(360, 30 + 28 * len(info.specs)))
+            for i, (k, v) in enumerate(info.specs):
+                t.setItem(i, 0, QTableWidgetItem(k))
+                t.setItem(i, 1, QTableWidgetItem(v))
+            self.bl.addWidget(t)
+            self.bl.addSpacing(10)
+        self._section(info.engine, "Engine")
+        self._section(info.platform, "Platform")

@@ -42,7 +42,12 @@ struct VehicleView: View {
             }
             .background(backdrop.ignoresSafeArea())
             .navigationTitle("Vehicle")
-            .toolbar { Button { picking = true } label: { Image(systemName: "car.2") } }
+            .toolbar {
+                if s.vehicle != nil {
+                    NavigationLink { CarInfoView() } label: { Image(systemName: "info.circle") }
+                }
+                Button { picking = true } label: { Image(systemName: "car.2") }
+            }
             .sheet(isPresented: $picking) { VehiclePicker() }
             .sheet(item: $detail) { r in ModuleDetail(reportID: r.id).presentationDetents([.medium, .large]) }
             .confirmationDialog("Clear \(s.vagFaulty.count) faulty module(s) only?", isPresented: $confirmAll, titleVisibility: .visible) {
