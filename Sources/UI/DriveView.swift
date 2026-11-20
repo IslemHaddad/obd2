@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Live horsepower & torque.
 /// 1) If the engine reports torque (PID 62 actual % × PID 63 reference Nm) → real engine torque, hp from rpm.
-/// 2) Otherwise estimated from acceleration: P = m · v · dv/dt (user-entered weight incl. driver),
-///    torque = P / ω_engine. That is power used to accelerate the car (drag/rolling/drivetrain losses not
+/// 2) Otherwise estimated from acceleration: crank power = (m·v·dv/dt + aero drag + rolling) / drivetrain eff,
+///    torque = P / ω_engine (user-entered weight incl. driver). Drag/rolling/drivetrain are added back (old note:
 ///    included), so it reads below the factory rating; best during full-throttle pulls in one gear.
 struct PowerView: View {
     @Environment(VehicleSession.self) private var s
@@ -101,14 +101,19 @@ struct PowerView: View {
         guard a > 0, v > 3, rpm > 800 else {
             return Live(hp: 0, nm: 0, method: "Estimated from acceleration", note: note, fromECU: false, valid: false)
         }
-        let kw = Double(weight) * v * a / 1000
+        // Estimate crank power: accel power + aero drag + rolling resistance, / drivetrain efficiency.
+        let cda = 0.65, crr = 0.012, drivetrain = 0.13, rho = 1.225, g = 9.81
+        let pAccel = Double(weight) * v * a
+        let pDrag = 0.5 * rho * cda * v * v * v
+        let pRoll = crr * Double(weight) * g * v
+        let kw = (pAccel + pDrag + pRoll) / (1 - drivetrain) / 1000
         let nm = kw * 1000 / (2 * .pi * rpm / 60)
         return Live(hp: kw * psPerKW, nm: nm, method: "Estimated from acceleration", note: note, fromECU: false,
                     valid: (s.values[0x11] ?? 0) > 60)
     }
 
     private var note: String {
-        "Power used to accelerate \(weight) kg (drag & drivetrain losses not included → reads below the factory figure). Peaks are recorded at >60% throttle; best in 2nd/3rd gear, full throttle."
+        "Estimated crank power for \(weight) kg — adds back aero drag, rolling resistance and drivetrain loss. Peaks recorded at >60% throttle; 2nd gear full-throttle is most accurate. Still an estimate, not a bench dyno."
     }
 }
 

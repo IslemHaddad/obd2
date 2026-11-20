@@ -22,9 +22,18 @@ RPM, SPEED, THROTTLE = 0x0C, 0x0D, 0x11
 PS_PER_KW = 1 / 0.73549875        # unit conversion (1 PS = 0.73549875 kW)
 
 
+G = 9.81            # gravity, m/s²
+RHO = 1.225         # air density at ~15 °C, kg/m³
+
+
 def analyse(samples: list[tuple[float, float, float, float]], mass: float, min_throttle: float = 80.0,
-            window: float = 0.8):
-    """samples: (t, rpm, speed_kmh, throttle%). Returns list of (rpm, kW, Nm) points + peaks."""
+            window: float = 0.8, cda: float = 0.65, crr: float = 0.012, drivetrain: float = 0.13):
+    """samples: (t, rpm, speed_kmh, throttle%). Returns list of (rpm, kW, Nm) points + peaks.
+
+    Estimates CRANK power by adding back the power the engine spends on aerodynamic drag
+    (½·ρ·CdA·v³), rolling resistance (Crr·m·g·v) and drivetrain loss, on top of the power that
+    accelerates the car's mass (m·v·a). cda≈0.65 and crr≈0.012 suit a small hatch; drivetrain≈0.13
+    is a typical FWD manual loss. Still approximate, but lands near the factory rating."""
     pts = [s for s in samples if s[3] >= min_throttle and s[2] > 15 and s[1] >= 1200]
     if len(pts) < 8:
         return [], None, None
@@ -44,7 +53,10 @@ def analyse(samples: list[tuple[float, float, float, float]], mass: float, min_t
         a = slope_kmh_s / 3.6
         if a <= 0 or rpm < 500:
             continue
-        p_w = mass * v * a
+        p_accel = mass * v * a                          # power into accelerating the mass
+        p_drag = 0.5 * RHO * cda * v ** 3               # aerodynamic drag
+        p_roll = crr * mass * G * v                     # rolling resistance
+        p_w = (p_accel + p_drag + p_roll) / (1 - drivetrain)   # → crank power
         torque = p_w / (2 * math.pi * rpm / 60)
         out.append((rpm, p_w / 1000, torque))
     out.sort()
@@ -132,8 +144,9 @@ class PowerPage(QWidget):
         lay.addLayout(C.row(C.label("Power Run", "h1"), "stretch", C.label("Car weight incl. driver"), self.mass, self.btn))
         lay.addWidget(C.label(
             "Safely, on a closed or empty straight road: pick 2nd or 3rd gear, start recording, go FULL throttle "
-            "from ~1500 rpm to near the limiter, then stop recording. Result = power used to accelerate the car "
-            "(drag, rolling and drivetrain losses not included, so it reads below the factory rating).", "muted", True))
+            "from ~1500 rpm to near the limiter, then stop recording. Estimated crank power — adds back aero drag, "
+            "rolling resistance and drivetrain loss. 2nd gear is most accurate; still an estimate, not a bench dyno.",
+            "muted", True))
         self.peaks = C.label("", "h2")
         lay.addWidget(C.card(C.row(self.peaks, "stretch", self.live)))
         self.chart = Chart()
