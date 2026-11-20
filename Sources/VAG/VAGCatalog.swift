@@ -8,6 +8,10 @@ enum BodyType: String, Codable, CaseIterable {
     var aspect: CGFloat {
         switch self { case .hatch: 2.15; case .sedan: 2.45; case .estate: 2.5; case .suv: 2.25; case .coupe: 2.35; case .van: 2.55 }
     }
+    /// Drag area CdA (Cd × frontal area, m²) for the crank-power estimate.
+    var cda: Double {
+        switch self { case .hatch: 0.65; case .sedan: 0.64; case .estate: 0.70; case .suv: 0.90; case .coupe: 0.60; case .van: 1.05 }
+    }
 }
 
 struct CarModel: Identifiable, Hashable, Codable {

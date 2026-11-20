@@ -38,6 +38,20 @@ WMI = {
 
 BODY_ASPECT = {"hatch": 2.15, "sedan": 2.45, "estate": 2.5, "suv": 2.25, "coupe": 2.35, "van": 2.55}
 
+# Drag area CdA (Cd × frontal area, m²) by body, for the Power Run crank-power estimate.
+CDA_BY_BODY = {"hatch": 0.65, "sedan": 0.64, "estate": 0.70, "coupe": 0.60, "suv": 0.90, "van": 1.05}
+
+
+def body_for(brand: str, model: str) -> str:
+    for m, body in BRANDS.get(brand, ("", "", []))[2]:
+        if m == model:
+            return body
+    return "hatch"
+
+
+def cda_for(brand: str, model: str) -> float:
+    return CDA_BY_BODY.get(body_for(brand, model), 0.65)
+
 CATEGORY_COLOR = {"powertrain": "#FF9F0A", "chassis": "#FF9F0A", "safety": "#FF453A", "electronics": "#FFD60A"}
 
 MODULES = [  # (address, name, request, response, category, x, y)

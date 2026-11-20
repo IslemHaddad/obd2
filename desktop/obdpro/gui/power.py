@@ -195,7 +195,10 @@ class PowerPage(QWidget):
                           f"throttle {th:.0f}%")
 
     def compute(self):
-        curve, pk, tq = analyse(self.samples, float(self.mass.value()))
+        from .. import catalog
+        veh = self.s.store.get("vehicle", {}) or {}
+        cda = catalog.cda_for(veh.get("brand", "seat"), veh.get("model", ""))
+        curve, pk, tq = analyse(self.samples, float(self.mass.value()), cda=cda)
         self.chart.set_curve(curve)
         self.table.setRowCount(len(curve))
         for i, (rpm, kw, nm) in enumerate(curve):

@@ -102,7 +102,9 @@ struct PowerView: View {
             return Live(hp: 0, nm: 0, method: "Estimated from acceleration", note: note, fromECU: false, valid: false)
         }
         // Estimate crank power: accel power + aero drag + rolling resistance, / drivetrain efficiency.
-        let cda = 0.65, crr = 0.012, drivetrain = 0.13, rho = 1.225, g = 9.81
+        // CdA auto-picked from the car's body type (hatch/suv/sedan…).
+        let cda = s.vehicle?.model.body.cda ?? 0.65
+        let crr = 0.012, drivetrain = 0.13, rho = 1.225, g = 9.81
         let pAccel = Double(weight) * v * a
         let pDrag = 0.5 * rho * cda * v * v * v
         let pRoll = crr * Double(weight) * g * v
