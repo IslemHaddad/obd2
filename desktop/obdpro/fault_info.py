@@ -241,7 +241,7 @@ def explain(f, module_name: str, family: str = "vag") -> Explanation:
     typ = ftb_text(f.ftb)
     cat_name, meaning, checks = category(f.ftb)
     sae = f.dtc if f.ftb == 0 else f"{f.dtc} {f.ftb:02X}"
-    known = dtc_db.KNOWN.get(f.dtc) if f.powertrain else None
+    known = dtc_db.lookup(f.dtc) if f.powertrain else None
     if f.powertrain:
         title = known or f"{module_name}: {typ}"
         code_line = f"{sae} · VW {f.raw}" if family == "vag" else sae

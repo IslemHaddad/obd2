@@ -62,8 +62,30 @@ enum DTCDatabase {
         "U0140": "Lost Communication With Body Control Module",
     ]
 
+    // MARK: Online fallback — a full code table fetched once from the project repo and cached on device.
+    static let onlineURL = URL(string: "https://raw.githubusercontent.com/IslemHaddad/obd2/main/data/dtc.json")!
+    private static let cacheKey = "dtc.online.v1"
+    /// Loaded from the on-device cache at first use; refreshed by preloadOnline().
+    static var online: [String: String] = {
+        if let d = UserDefaults.standard.data(forKey: cacheKey),
+           let m = try? JSONDecoder().decode([String: String].self, from: d) { return m }
+        return [:]
+    }()
+
+    /// Curated set first, then the online table. nil only when a code is in neither.
+    static func lookup(_ code: String) -> String? { known[code] ?? online[code] }
+
+    /// Fetch the full code table once and cache it. Best-effort; silent offline.
+    static func preloadOnline() async {
+        if online.count > 100 { return }                         // already have it from a previous run
+        guard let (data, _) = try? await URLSession.shared.data(from: onlineURL),
+              let m = try? JSONDecoder().decode([String: String].self, from: data), !m.isEmpty else { return }
+        online = m
+        UserDefaults.standard.set(data, forKey: cacheKey)
+    }
+
     static func describe(_ code: String) -> String {
-        if let d = known[code] { return d }
+        if let d = lookup(code) { return d }
         let chars = Array(code)
         guard chars.count == 5 else { return "Unknown" }
         let generic = chars[1] == "0" || chars[1] == "2" || (chars[0] == "P" && chars[1] == "3" && chars[2] >= "4")

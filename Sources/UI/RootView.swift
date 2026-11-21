@@ -29,6 +29,7 @@ struct RootView: View {
                     .onTapGesture { s.alert = nil }
             }
         }
+        .task { await DTCDatabase.preloadOnline() }
         .animation(.spring, value: s.alert)
         .sensoryFeedback(.warning, trigger: s.alert)
         .onChange(of: s.scanner.poweredOn) { _, on in

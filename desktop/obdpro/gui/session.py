@@ -100,6 +100,8 @@ class Session(QObject):
         veh = store.get("vehicle", {}) or {}
         self.family = catalog.FAMILY.get(veh.get("brand", "seat"), "vag")
         self.fuel = veh.get("fuel", "")          # "petrol" / "diesel"; set during scan when known
+        from .. import dtc_db
+        threading.Thread(target=dtc_db.preload_online, daemon=True).start()   # fetch full code table once
 
     def _tool(self):
         return Hyundai(self.elm, self.family) if self.family in ("hyundai", "renault") else VAG(self.elm)

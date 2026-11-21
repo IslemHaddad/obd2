@@ -25,7 +25,7 @@ struct FaultRow: View {
 
     /// In the module's own sheet the module name is redundant; show the failure itself.
     private func headline(_ e: FaultExplanation) -> String {
-        if fault.powertrain, DTCDatabase.known[fault.dtc] != nil { return e.title }
+        if fault.powertrain, DTCDatabase.lookup(fault.dtc) != nil { return e.title }
         return fault.failureType == 0 ? "General fault" : FaultKnowledge.ftbText(fault.failureType)
     }
 }

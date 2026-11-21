@@ -185,7 +185,7 @@ struct VAGFault: Identifiable, Hashable {
     var confirmed: Bool { status & 0x08 != 0 }
     var state: String { active ? "Active" : confirmed ? "Stored" : status & 0x04 != 0 ? "Pending" : "Intermittent" }
     var description: String {
-        if powertrain, let k = DTCDatabase.known[dtc] { return k }
+        if powertrain, let k = DTCDatabase.lookup(dtc) { return k }
         return "\(FaultKnowledge.category(failureType).name): \(FaultKnowledge.ftbText(failureType))"
     }
     var detail: String {

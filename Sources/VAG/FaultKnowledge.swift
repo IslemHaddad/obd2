@@ -204,7 +204,7 @@ extension VAGFault {
         let type = FaultKnowledge.ftbText(failureType)
         let cat = FaultKnowledge.category(failureType)
         let sae = failureType == 0 ? dtc : "\(dtc) \(String(format: "%02X", failureType))"
-        let known = DTCDatabase.known[dtc]
+        let known = DTCDatabase.lookup(dtc)
         let title: String
         let codeLine: String
         if powertrain {

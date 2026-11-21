@@ -64,9 +64,57 @@ KNOWN = {
 }
 
 
+# --- Online fallback: full code table fetched once from the project repo, cached on disk ---
+import json as _json
+import os as _os
+import urllib.request as _url
+
+_ONLINE: dict[str, str] = {}
+_ONLINE_URL = "https://raw.githubusercontent.com/IslemHaddad/obd2/main/data/dtc.json"
+_CACHE = _os.path.join(_os.path.expanduser("~"), ".cache", "obdpro", "dtc.json")
+
+
+def _load_cache() -> None:
+    global _ONLINE
+    try:
+        with open(_CACHE, encoding="utf-8") as f:
+            _ONLINE = _json.load(f)
+    except Exception:
+        pass
+
+
+def preload_online() -> None:
+    """Fetch the full code table once and cache it. Best-effort; silent offline."""
+    global _ONLINE
+    if len(_ONLINE) > 100:
+        return
+    try:
+        req = _url.Request(_ONLINE_URL, headers={"User-Agent": "OBDPro/1.0"})
+        with _url.urlopen(req, timeout=8) as r:
+            data = r.read()
+        m = _json.loads(data)
+        if m:
+            _ONLINE = m
+            _os.makedirs(_os.path.dirname(_CACHE), exist_ok=True)
+            with open(_CACHE, "wb") as f:
+                f.write(data)
+    except Exception:
+        pass
+
+
+def lookup(code: str) -> str | None:
+    """Curated set first, then the online table."""
+    return KNOWN.get(code) or _ONLINE.get(code)
+
+
+_load_cache()
+
+
 def describe(code: str) -> str:
     if code in KNOWN:
         return KNOWN[code]
+    if code in _ONLINE:
+        return _ONLINE[code]
     if len(code) != 5:
         return "Unknown"
     s, d1, d2 = code[0], code[1], code[2]
